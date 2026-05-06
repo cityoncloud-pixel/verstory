@@ -1,0 +1,275 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-05-05",
+  "current_task_id": null,
+  "tasks": [
+    {
+      "id": "bootstrap-0001",
+      "title": "GAEH Bootstrap Skeleton",
+      "route": "B",
+      "status": "completed",
+      "depends_on": [],
+      "artifacts": {
+        "spec": null,
+        "plan": "plans/bootstrap-0001.plan.md",
+        "review": "reviews/bootstrap-0001.review.md",
+        "report": "reports/bootstrap-0001.report.md"
+      }
+    },
+    {
+      "id": "mvp-phase-0001",
+      "title": "Phase 2 Spec & Plan (MVP Web App)",
+      "route": "D",
+      "status": "completed",
+      "depends_on": [],
+      "artifacts": {
+        "spec": "specs/mvp-phase-0001.spec.md",
+        "plan": "plans/mvp-phase-0001.plan.md",
+        "review": "reviews/mvp-phase-0001.review.md",
+        "report": "reports/mvp-phase-0001.report.md"
+      }
+    },
+    {
+      "id": "mvp-0001",
+      "title": "Scaffold Web App (Vite + React + TS)",
+      "route": "B",
+      "status": "completed",
+      "depends_on": [
+        "mvp-phase-0001"
+      ],
+      "artifacts": {
+        "spec": "specs/mvp-0001.spec.md",
+        "plan": "plans/mvp-0001.plan.md",
+        "review": "reviews/mvp-0001.review.md",
+        "report": "reports/mvp-0001.report.md"
+      }
+    },
+    {
+      "id": "mvp-0002",
+      "title": "Recording + IndexedDB Storage (Audio Segments)",
+      "route": "C",
+      "status": "completed",
+      "depends_on": [
+        "mvp-0001"
+      ],
+      "artifacts": {
+        "spec": "specs/mvp-0002.spec.md",
+        "plan": "plans/mvp-0002.plan.md",
+        "review": "reviews/mvp-0002.review.md",
+        "report": "reports/mvp-0002.report.md"
+      }
+    },
+    {
+      "id": "mvp-0003",
+      "title": "Mock Providers (Transcription + Story Polish)",
+      "route": "B",
+      "status": "completed",
+      "depends_on": [
+        "mvp-0002"
+      ],
+      "artifacts": {
+        "spec": "specs/mvp-0003.spec.md",
+        "plan": "plans/mvp-0003.plan.md",
+        "review": "reviews/mvp-0003.review.md",
+        "report": "reports/mvp-0003.report.md"
+      }
+    },
+    {
+      "id": "mvp-0004",
+      "title": "UI Flow + Export Markdown",
+      "route": "B",
+      "status": "completed",
+      "depends_on": [
+        "mvp-0003"
+      ],
+      "artifacts": {
+        "spec": "specs/mvp-0004.spec.md",
+        "plan": "plans/mvp-0004.plan.md",
+        "review": "reviews/mvp-0004.review.md",
+        "report": "reports/mvp-0004.report.md"
+      }
+    },
+    {
+      "id": "mvp-0005",
+      "title": "Verification + Minimal Docs",
+      "route": "B",
+      "status": "completed",
+      "depends_on": [
+        "mvp-0004"
+      ],
+      "artifacts": {
+        "spec": "specs/mvp-0005.spec.md",
+        "plan": "plans/mvp-0005.plan.md",
+        "review": "reviews/mvp-0005.review.md",
+        "report": "reports/mvp-0005.report.md"
+      }
+    },
+    {
+      "id": "deploy-phase-0001",
+      "title": "Phase 3 Spec & Plan (Deployment)",
+      "route": "D",
+      "status": "completed",
+      "depends_on": [
+        "mvp-0005"
+      ],
+      "artifacts": {
+        "spec": "specs/deploy-phase-0001.spec.md",
+        "plan": "plans/deploy-phase-0001.plan.md",
+        "review": "reviews/deploy-phase-0001.review.md",
+        "report": "reports/deploy-phase-0001.report.md"
+      }
+    },
+    {
+      "id": "deploy-0001",
+      "title": "Frontend Build & Hostinger Publish Guide",
+      "route": "B",
+      "status": "completed",
+      "depends_on": [
+        "deploy-phase-0001"
+      ],
+      "artifacts": {
+        "spec": "specs/deploy-0001.spec.md",
+        "plan": "plans/deploy-0001.plan.md",
+        "review": "reviews/deploy-0001.review.md",
+        "report": "reports/deploy-0001.report.md"
+      }
+    },
+    {
+      "id": "deploy-0002",
+      "title": "Backend /healthz Service (Node + Docker)",
+      "route": "B",
+      "status": "completed",
+      "depends_on": [
+        "deploy-phase-0001"
+      ],
+      "artifacts": {
+        "spec": "specs/deploy-0002.spec.md",
+        "plan": "plans/deploy-0002.plan.md",
+        "review": "reviews/deploy-0002.review.md",
+        "report": "reports/deploy-0002.report.md"
+      }
+    },
+    {
+      "id": "deploy-0003",
+      "title": "VPS Nginx + HTTPS + Reverse Proxy Guide",
+      "route": "C",
+      "status": "completed",
+      "depends_on": [
+        "deploy-0002"
+      ],
+      "artifacts": {
+        "spec": "specs/deploy-0003.spec.md",
+        "plan": "plans/deploy-0003.plan.md",
+        "review": "reviews/deploy-0003.review.md",
+        "report": "reports/deploy-0003.report.md"
+      }
+    },
+    {
+      "id": "deploy-0004",
+      "title": "DNS Cutover + Verification Checklist",
+      "route": "B",
+      "status": "completed",
+      "depends_on": [
+        "deploy-0001",
+        "deploy-0003"
+      ],
+      "artifacts": {
+        "spec": "specs/deploy-0004.spec.md",
+        "plan": "plans/deploy-0004.plan.md",
+        "review": "reviews/deploy-0004.review.md",
+        "report": "reports/deploy-0004.report.md"
+      }
+    },
+    {
+      "id": "tinyfix-0001",
+      "title": "Fix HEAD /healthz returning 404",
+      "route": "A",
+      "status": "completed",
+      "depends_on": [
+        "deploy-0002"
+      ],
+      "artifacts": {
+        "spec": null,
+        "plan": null,
+        "review": "reviews/tinyfix-0001.review.md",
+        "report": "reports/tinyfix-0001.report.md"
+      }
+    },
+    {
+      "id": "ai-phase-0001",
+      "title": "Phase 4 Spec & Plan (AI backend + model selection)",
+      "route": "D",
+      "status": "completed",
+      "depends_on": [
+        "deploy-0004"
+      ],
+      "artifacts": {
+        "spec": "specs/ai-phase-0001.spec.md",
+        "plan": "plans/ai-phase-0001.plan.md",
+        "review": "reviews/ai-phase-0001.review.md",
+        "report": "reports/ai-phase-0001.report.md"
+      }
+    },
+    {
+      "id": "ai-0001",
+      "title": "Model registry + /api/models + config check",
+      "route": "B",
+      "status": "completed",
+      "depends_on": [
+        "ai-phase-0001"
+      ],
+      "artifacts": {
+        "spec": "specs/ai-0001.spec.md",
+        "plan": "plans/ai-0001.plan.md",
+        "review": "reviews/ai-0001.review.md",
+        "report": "reports/ai-0001.report.md"
+      }
+    },
+    {
+      "id": "ai-0002",
+      "title": "STT transcribe API (/api/stt/transcribe)",
+      "route": "C",
+      "status": "completed",
+      "depends_on": [
+        "ai-0001"
+      ],
+      "artifacts": {
+        "spec": "specs/ai-0002.spec.md",
+        "plan": "plans/ai-0002.plan.md",
+        "review": "reviews/ai-0002.review.md",
+        "report": "reports/ai-0002.report.md"
+      }
+    },
+    {
+      "id": "ai-0003",
+      "title": "Text refine API (/api/text/refine) + prompts",
+      "route": "B",
+      "status": "completed",
+      "depends_on": [
+        "ai-0001"
+      ],
+      "artifacts": {
+        "spec": "specs/ai-0003.spec.md",
+        "plan": "plans/ai-0003.plan.md",
+        "review": "reviews/ai-0003.review.md",
+        "report": "reports/ai-0003.report.md"
+      }
+    },
+    {
+      "id": "ai-0004",
+      "title": "Frontend integration (model select + upload + refine)",
+      "route": "B",
+      "status": "completed",
+      "depends_on": [
+        "ai-0002",
+        "ai-0003"
+      ],
+      "artifacts": {
+        "spec": "specs/ai-0004.spec.md",
+        "plan": "plans/ai-0004.plan.md",
+        "review": "reviews/ai-0004.review.md",
+        "report": "reports/ai-0004.report.md"
+      }
+    }
+  ]
+}

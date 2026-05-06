@@ -1,0 +1,65 @@
+{
+  "verdict": "PASS",
+  "checks": [
+    {
+      "name": "clarity",
+      "status": "PASS",
+      "notes": "目标意图、交付物与主要流程清晰。"
+    },
+    {
+      "name": "verifiability",
+      "status": "PASS",
+      "notes": "Success Criteria 含可观察行为与可验证命令（构建/启动），并补充了无网络 mock 的确定性验收。"
+    },
+    {
+      "name": "scope_size",
+      "status": "PASS",
+      "notes": "MVP 边界基本收敛，Out 列表明确避免膨胀。"
+    },
+    {
+      "name": "hidden_prereqs",
+      "status": "PASS",
+      "notes": "已明确 mock provider 的离线/确定性验收要求，并强调 provider 可插拔。"
+    },
+    {
+      "name": "gaeh_executable",
+      "status": "PASS",
+      "notes": "Execution Handoff 已包含 recommended_route、seed_tasks、spec_outline、verification_plan，可直接进入 GAEH 流程。"
+    },
+    {
+      "name": "needs_owner_input",
+      "status": "PASS",
+      "notes": "已将真实 provider 作为可选扩展，并用 assumptions/constraints 明确默认 mock 策略。"
+    }
+  ],
+  "open_questions": [],
+  "auto_revisions": [],
+  "handoff": {
+    "recommended_route": "Spec -> Plan -> Review -> Execute（先 mock 跑通全链路，再可选接真实 provider）",
+    "seed_tasks": [
+      "定义数据模型：Project、RecordingSegment、Transcript、Story（含版本/更新时间）。",
+      "实现浏览器录音：MediaRecorder 分段录制、片段列表、回放、删除。",
+      "实现本地持久化：IndexedDB（或等价方案）存储项目/片段元数据与文本结果；刷新恢复。",
+      "设计 provider 接口与默认 mock：TranscriptionProvider、StoryPolishProvider；mock 输出确定性文本。",
+      "实现 UI：原始转写与故事并排展示；“转写/生成故事/导出”按钮与状态提示。",
+      "实现导出：将故事以 Markdown 导出/复制。",
+      "补齐最小文档与验收步骤。"
+    ],
+    "spec_outline": [
+      "信息架构：项目列表/项目详情/录音区/文本区/导出区。",
+      "状态机：idle -> recording -> recorded -> transcribing -> polished -> exported（或等价）。",
+      "存储 schema：projects、segments、texts（键与索引）。",
+      "provider 接口：输入/输出、错误处理、取消/重试策略。",
+      "整理规则：不可变禁止项与允许编辑项；展示给用户的提示文案。"
+    ],
+    "verification_plan": [
+      "启动应用：执行仓库既定启动命令（默认 `npm run dev`）并打开页面。",
+      "创建项目并录两段音频：开始/停止/继续录音；确认列表可回放。",
+      "点击转写：确认每段出现转写文本与合并全文（mock 情况下也应有确定性输出）。",
+      "点击生成故事：确认出现故事文本且声明整理原则；对比原文确认未引入新事实（人工抽查）。",
+      "刷新页面：确认项目、片段、文本仍可恢复。",
+      "导出：确认可复制/下载 Markdown。",
+      "构建：执行仓库既定构建命令（默认 `npm run build`）成功。"
+    ]
+  }
+}

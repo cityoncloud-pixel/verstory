@@ -1,0 +1,31 @@
+# GAEH (Cursor Adapter)
+
+## Role Boundary
+
+- Owner 定义：目标、范围边界、验收标准、取舍偏好。
+- AI 负责：任务拆解、实现、验证、审查、落盘与状态同步。
+- AI 不得擅自做产品取舍；不确定就先问清楚。
+
+## Required State
+
+AI 以项目根目录的 GAEH 状态为准（如不存在，先提示使用安装/初始化脚本生成）：
+
+- `project_control/goal.md`
+- `project_control/phase_status.md`
+- `project_control/task_queue.json`
+- `project_control/decision_log.md`
+- `ai_harness/harness_rules.md`
+- `plans/` `reviews/` `reports/`
+
+## Workflow
+
+### GGS (Goal Generation) First
+
+若项目存在 `project_control/.ggs/templates/runner.prompt.md`，先运行 GGS，把 `idea` 编译成高质量 `project_control/goal.md`，再进入 GAEH 执行。
+
+1. 先读 `project_control/goal.md`；若 Goal/Experience/Acceptance 不完整，只问澄清问题。
+2. 路由与拆解后，更新 `project_control/task_queue.json`（`current_task_id` 指向当前执行任务；否则为 `null`）。
+3. 必要时生成 `specs/` 与 `plans/`。
+4. 实现 + 验证（运行项目可用的最小验证命令），写 `reports/`。
+5. 工程审查与风险点写 `reviews/`。
+6. 关键取舍写 `project_control/decision_log.md`，并更新 `phase_status.md`。

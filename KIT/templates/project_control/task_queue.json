@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "YYYY-MM-DD",
+  "current_task_id": null,
+  "tasks": [
+    {
+      "id": "bootstrap-0001",
+      "title": "GAEH Bootstrap Skeleton",
+      "route": "B",
+      "status": "pending",
+      "depends_on": [],
+      "artifacts": {
+        "spec": null,
+        "plan": "plans/bootstrap-0001.plan.md",
+        "review": "reviews/bootstrap-0001.review.md",
+        "report": "reports/bootstrap-0001.report.md"
+      }
+    }
+  ]
+}
