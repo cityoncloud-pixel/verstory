@@ -66,6 +66,8 @@ export async function buildServer() {
       if (!origin) return cb(null, true)
       const allow = [
         'https://story.suenbeya.com',
+        'https://suenbeya.com',
+        'https://www.suenbeya.com',
         'http://localhost:5173',
         'http://127.0.0.1:5173',
       ]
