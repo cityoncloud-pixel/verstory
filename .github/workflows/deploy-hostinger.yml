@@ -28,7 +28,7 @@ jobs:
 
       - name: Install
         working-directory: apps/web
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Build
         working-directory: apps/web
@@ -45,4 +45,3 @@ jobs:
           local-dir: apps/web/dist/
           server-dir: ${{ secrets.HOSTINGER_FTP_DIR }}
           dangerous-clean-slate: true
-
