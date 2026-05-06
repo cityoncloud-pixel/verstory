@@ -32,6 +32,8 @@ jobs:
 
       - name: Build
         working-directory: apps/web
+        env:
+          VITE_BUILD_ID: ${{ github.sha }}
         run: npm run build
 
       - name: Deploy via FTP

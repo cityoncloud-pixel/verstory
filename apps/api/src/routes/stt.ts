@@ -87,7 +87,8 @@ export async function registerSttRoutes(app: FastifyInstance) {
         if (!submit.ok) return reply.code(502).send(submit)
 
         // polling: 标准版可能需要更久；根据文档状态码 20000001/20000002 表示处理中/队列中
-        const deadlineMs = Date.now() + 120_000
+        // 标准版长音频可能需要更久（尤其是排队/处理中）；这里给到 10 分钟上限
+        const deadlineMs = Date.now() + 600_000
         let waitMs = 800
         let last: any = null
         while (Date.now() < deadlineMs) {

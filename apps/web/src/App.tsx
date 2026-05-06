@@ -94,6 +94,7 @@ function App() {
   const [textProvider, setTextProvider] = useState<string>('deepseek')
   const [textModel, setTextModel] = useState<string>('deepseek-chat')
   const [refineMode, setRefineMode] = useState<'clean' | 'organize' | 'goal'>('clean')
+  const buildId = (import.meta as any)?.env?.VITE_BUILD_ID as string | undefined
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
@@ -728,6 +729,10 @@ function App() {
           </div>
         </section>
       </main>
+
+      <footer className="muted" style={{ marginTop: 14, textAlign: 'center' }}>
+        {buildId ? `build: ${buildId.slice(0, 7)}` : null}
+      </footer>
     </div>
   )
 }
