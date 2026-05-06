@@ -1,0 +1,48 @@
+name: Deploy story.suenbeya.com (Hostinger FTP)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - ".github/workflows/deploy-hostinger.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: hostinger-story-deploy
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Build
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Deploy via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.HOSTINGER_FTP_HOST }}
+          username: ${{ secrets.HOSTINGER_FTP_USER }}
+          password: ${{ secrets.HOSTINGER_FTP_PASS }}
+          port: ${{ secrets.HOSTINGER_FTP_PORT }}
+          protocol: ftp
+          local-dir: apps/web/dist/
+          server-dir: ${{ secrets.HOSTINGER_FTP_DIR }}
+          dangerous-clean-slate: true
+
