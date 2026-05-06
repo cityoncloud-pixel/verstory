@@ -93,7 +93,7 @@ function App() {
   const [sttModel, setSttModel] = useState<string>('gpt-4o-mini-transcribe')
   const [textProvider, setTextProvider] = useState<string>('deepseek')
   const [textModel, setTextModel] = useState<string>('deepseek-chat')
-  const [refineMode, setRefineMode] = useState<'clean' | 'organize' | 'goal'>('clean')
+  const [refineMode, setRefineMode] = useState<'clean' | 'organize' | 'memoir' | 'goal'>('clean')
   const buildId = (import.meta as any)?.env?.VITE_BUILD_ID as string | undefined
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -611,6 +611,7 @@ function App() {
               <select value={refineMode} onChange={(e) => setRefineMode(e.target.value as any)}>
                 <option value="clean">clean</option>
                 <option value="organize">organize</option>
+                <option value="memoir">memoir</option>
                 <option value="goal">goal</option>
               </select>
               <button className="btn" type="button" disabled={!activeProject || !transcriptText.trim()} onClick={() => void runApiRefine()}>

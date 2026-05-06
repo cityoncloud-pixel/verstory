@@ -20,7 +20,7 @@ export async function registerTextRefineRoutes(app: FastifyInstance) {
     if (!text) return reply.code(400).send(apiError('BAD_REQUEST', 'missing text'))
 
     const mode = (body.mode ?? 'clean') as RefineMode
-    if (!['clean', 'organize', 'goal'].includes(mode)) {
+    if (!['clean', 'organize', 'memoir', 'goal'].includes(mode)) {
       return reply.code(400).send(apiError('BAD_REQUEST', 'invalid mode', { mode }))
     }
 
@@ -48,13 +48,16 @@ export async function registerTextRefineRoutes(app: FastifyInstance) {
       const client = createOpenAIClient(apiKey, { baseURL: providerDef.baseUrl })
 
       const started = Date.now()
+      const temperature =
+        mode === 'clean' ? 0.1 : mode === 'memoir' ? 0.6 : mode === 'organize' ? 0.3 : 0.2
+
       const completion = await client.chat.completions.create({
         model,
         messages: [
           { role: 'system', content: prompt.system },
           { role: 'user', content: prompt.user },
         ],
-        temperature: 0.2,
+        temperature,
       })
       const result = completion.choices[0]?.message?.content?.trim() ?? ''
       const duration = (Date.now() - started) / 1000

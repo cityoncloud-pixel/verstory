@@ -86,7 +86,7 @@ export async function sttTranscribe(params: {
 
 export async function textRefine(params: {
   text: string
-  mode: 'clean' | 'organize' | 'goal'
+  mode: 'clean' | 'organize' | 'memoir' | 'goal'
   provider: string
   model: string
 }) {
