@@ -36,6 +36,11 @@ jobs:
           VITE_BUILD_ID: ${{ github.sha }}
         run: npm run build
 
+      - name: Write build marker
+        working-directory: apps/web
+        run: |
+          echo "${GITHUB_SHA}" > dist/build.txt
+
       - name: Deploy via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -45,5 +50,6 @@ jobs:
           port: ${{ secrets.HOSTINGER_FTP_PORT }}
           protocol: ftps
           local-dir: apps/web/dist/
-          server-dir: ${{ secrets.HOSTINGER_FTP_DIR }}
+          # This FTP user is scoped to the story subdirectory already; deploy to root to avoid path nesting.
+          server-dir: /
           dangerous-clean-slate: true
