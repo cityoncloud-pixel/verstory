@@ -1,25 +1,26 @@
 # phase_status.md (Owner-owned)
 
 ## Current Phase
-Phase 4: Backend AI + Model Selection
+Phase 5: Cloud Storage + Auth + Responsive UI
 
 ## Phase Goal
-把 Verstory 推进到真实可用的 AI 文本处理系统：
-- 后端提供模型可选（provider/model）与配置检查
-- 后端提供 STT（音频→文字）与 text refine（clean/organize/goal）
-- 前端接入并完成端到端闭环（上传音频→转写→整理→展示/导出）
+将 Verstory 升级为“云端存储版”并可跨设备继续使用：
+- 预置用户登录（邮箱/密码），不开放注册
+- 录音文件存 Cloudflare R2（私有 bucket，预签名直传/直取）
+- 项目/录音元数据/转写/改写/任务状态存 Postgres
+- 前端 UI 更美观且适配手机/平板/桌面；“转写中/改写中”状态放入各自板块
 
 ## Done Criteria
-- `GET https://story-api.suenbeya.com/api/models` 返回 provider/model 列表
-- `POST https://story-api.suenbeya.com/api/stt/transcribe` 可转写（至少一种 provider/model）
-- `POST https://story-api.suenbeya.com/api/text/refine` 支持 `clean|organize|goal`
-- 前端 `https://story.suenbeya.com` 可选择模型并跑通上传→转写→整理闭环
-- 关键工程产物落盘：spec / plan / report / review 完整，`task_queue.json` 状态与实际一致
+- 用户登录后能创建项目、录音、上传到 R2，并能在另一设备登录后看到并播放同一录音
+- 转写/改写可运行且状态归位（各自板块内显示进行中/失败/完成）
+- 必需工程产物完整：`specs/mvp-0006.spec.md`、`plans/mvp-0006.plan.md`、`reviews/mvp-0006.review.md`、`reports/mvp-0006.report.md`
+- 本地可验证：`npm run dev` 跑通一次端到端流程；`npm run build` 成功
 
 ## Notes
-- 真实调用需要在 VPS 设置 `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` 并更新 Hostinger 前端构建产物（见 `deploy/phase4_runbook.md`）。
+- 生产环境需要配置 `DATABASE_URL` 与 R2/JWT/Cookie 相关环境变量（仅提供变量名，不在仓库中写入真实值）。
 
 ## Forbidden Work (Scope Guard)
-- 不做账号/跨设备同步/多用户协作
-- 不做 SaaS/分布式 CI/CD
-- 不引入复杂多 Agent runtime
+- 不做多用户协作/邀请/权限细粒度管理
+- 不做计费/配额/审计与合规模块
+- 不做实时流式转写
+

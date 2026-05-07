@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
-  "updated_at": "2026-05-05",
-  "current_task_id": null,
+  "updated_at": "2026-05-07",
+  "current_task_id": "mvp-0006",
   "tasks": [
     {
       "id": "bootstrap-0001",
@@ -269,6 +269,22 @@
         "plan": "plans/ai-0004.plan.md",
         "review": "reviews/ai-0004.review.md",
         "report": "reports/ai-0004.report.md"
+      }
+    },
+    {
+      "id": "mvp-0006",
+      "title": "Cloud Storage (Postgres + R2) + Auth + Responsive UI",
+      "route": "D",
+      "status": "in_progress",
+      "depends_on": [
+        "ai-0004",
+        "mvp-0005"
+      ],
+      "artifacts": {
+        "spec": "specs/mvp-0006.spec.md",
+        "plan": "plans/mvp-0006.plan.md",
+        "review": "reviews/mvp-0006.review.md",
+        "report": "reports/mvp-0006.report.md"
       }
     }
   ]
