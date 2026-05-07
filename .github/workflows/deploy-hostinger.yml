@@ -28,7 +28,7 @@ jobs:
 
       - name: Install
         working-directory: apps/web
-        run: npm ci --no-audit --no-fund
+        run: npm install --no-audit --no-fund
 
       - name: Build
         working-directory: apps/web
