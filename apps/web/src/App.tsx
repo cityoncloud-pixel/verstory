@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 import { AudioPlayer } from './AudioPlayer'
+import { RecordingWaveform } from './RecordingWaveform'
 import {
+  bulkDeleteRecordings,
   completeRecording,
   createProjectApi,
   deleteProjectApi,
+  deleteRecording,
   fetchModels,
   getRecordingBlob,
   getProjectTexts,
@@ -50,6 +53,9 @@ type CloudRecording = {
   mimeType?: string | null
   sizeBytes?: number | null
   r2Key: string
+  transcriptText?: string | null
+  transcriptProvider?: string | null
+  transcriptModel?: string | null
 }
 
 function formatDurationMs(ms: number) {
@@ -94,8 +100,11 @@ function App() {
   const [projects, setProjects] = useState<CloudProject[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() => localStorage.getItem(LS_ACTIVE_PROJECT_KEY))
   const [recordings, setRecordings] = useState<CloudRecording[]>([])
-  const [selectedRecordingId, setSelectedRecordingId] = useState<string | null>(null)
   const [recordingBlobs, setRecordingBlobs] = useState<Record<string, Blob>>({})
+  const [selectedRecordingIds, setSelectedRecordingIds] = useState<Record<string, boolean>>({})
+  const [recordingSttStatus, setRecordingSttStatus] = useState<Record<string, string>>({})
+  const [recordingSttError, setRecordingSttError] = useState<Record<string, string>>({})
+  const [openPlayers, setOpenPlayers] = useState<Record<string, boolean>>({})
 
   const [recordingStatus, setRecordingStatus] = useState<string>('')
   const [recordingError, setRecordingError] = useState<string>('')
@@ -127,15 +136,31 @@ function App() {
   const [recordingElapsedMs, setRecordingElapsedMs] = useState<number>(0)
 
   const activeProject = useMemo(() => projects.find((p) => p.id === activeProjectId) ?? null, [projects, activeProjectId])
-  const selectedRecording = useMemo(
-    () => recordings.find((r) => r.id === selectedRecordingId) ?? null,
-    [recordings, selectedRecordingId],
-  )
 
   const isRecording = mediaRecorderRef.current != null
 
+  const selectedIds = useMemo(() => Object.keys(selectedRecordingIds).filter((id) => selectedRecordingIds[id]), [selectedRecordingIds])
+
   function refreshApiLogs() {
     setApiLogs(getApiLogs())
+  }
+
+  function clearLocalProjectCache() {
+    const keys: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (!k) continue
+      if (k.startsWith(LS_TRANSCRIPT_PREFIX) || k.startsWith(LS_STORY_PREFIX) || k === LS_ACTIVE_PROJECT_KEY) keys.push(k)
+    }
+    for (const k of keys) localStorage.removeItem(k)
+    setTranscriptText('')
+    setStoryText('')
+    setStoryRulesSummary('')
+    setActiveProjectId(null)
+    setRecordings([])
+    setRecordingBlobs({})
+    setSelectedRecordingIds({})
+    setOpenPlayers({})
   }
 
   function clearRecordingTimers() {
@@ -160,8 +185,11 @@ function App() {
     if (!res?.ok) throw new Error(res?.error?.message ?? 'failed to load recordings')
     const list = (res.recordings ?? []) as CloudRecording[]
     setRecordings(list)
-    if (list.length > 0) setSelectedRecordingId((prev) => prev ?? list[0].id)
-    else setSelectedRecordingId(null)
+    setSelectedRecordingIds((prev) => {
+      const next: Record<string, boolean> = {}
+      for (const r of list) if (prev[r.id]) next[r.id] = true
+      return next
+    })
   }
 
   async function loadProjectTexts(projectId: string) {
@@ -194,7 +222,7 @@ function App() {
     let cancelled = false
     if (!activeProjectId) {
       setRecordings([])
-      setSelectedRecordingId(null)
+      setSelectedRecordingIds({})
       return
     }
     ;(async () => {
@@ -270,7 +298,7 @@ function App() {
     setAuthed(false)
     setProjects([])
     setRecordings([])
-    setSelectedRecordingId(null)
+    setSelectedRecordingIds({})
     setAccessToken('')
   }
 
@@ -297,6 +325,8 @@ function App() {
       return
     }
     setRecordingBlobs({})
+    localStorage.removeItem(LS_TRANSCRIPT_PREFIX + activeProject.id)
+    localStorage.removeItem(LS_STORY_PREFIX + activeProject.id)
     await loadProjects()
   }
 
@@ -423,7 +453,6 @@ function App() {
 
       setRecordingStatus('')
       await loadRecordings(activeProjectId)
-      if (recordingId) setSelectedRecordingId(recordingId)
     } catch (e: any) {
       setRecordingStatus('')
       setRecordingError(e?.message ?? String(e))
@@ -440,38 +469,85 @@ function App() {
     return blob
   }
 
-  async function runApiTranscription() {
+  const recordingsAsc = useMemo(() => {
+    return recordings.slice().sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+  }, [recordings])
+
+  const mergedTranscriptFromRecordings = useMemo(() => {
+    const parts: string[] = []
+    for (const r of recordingsAsc) {
+      const t = String(r.transcriptText ?? '').trim()
+      if (t) parts.push(t)
+    }
+    return parts.join('\n\n')
+  }, [recordingsAsc])
+
+  async function transcribeOneRecording(r: CloudRecording) {
+    setRecordingSttError((prev) => ({ ...prev, [r.id]: '' }))
+    setRecordingSttStatus((prev) => ({ ...prev, [r.id]: 'transcribing' }))
+    try {
+      const blob = await ensureRecordingBlob(r.id)
+      const res = await sttTranscribe({
+        audio: blob,
+        filename: `recording_${r.id}.${extFromMime(blob.type || r.mimeType || 'audio/webm')}`,
+        provider: sttProvider,
+        model: sttModel,
+        language: 'zh',
+        recordingId: r.id,
+      })
+      refreshApiLogs()
+      if (!res?.ok) throw new Error(`${res?.error?.code ?? 'ERROR'}: ${res?.error?.message ?? '请求失败'}`)
+      setRecordingSttStatus((prev) => ({ ...prev, [r.id]: 'done' }))
+      if (activeProjectId) await loadRecordings(activeProjectId)
+    } catch (e: any) {
+      setRecordingSttStatus((prev) => ({ ...prev, [r.id]: '' }))
+      setRecordingSttError((prev) => ({ ...prev, [r.id]: e?.message ?? String(e) }))
+    }
+  }
+
+  async function runApiTranscriptionAll() {
     setSttError('')
     if (!activeProjectId) return setSttError('请先选择项目。')
-    if (recordings.length === 0) return setSttError('当前项目还没有录音。')
+    if (recordingsAsc.length === 0) return setSttError('当前项目还没有录音。')
 
     setSttStatus('转写中')
+    let okCount = 0
+    let failCount = 0
     try {
-      const parts: string[] = []
-      for (let i = 0; i < recordings.length; i++) {
-        const r = recordings[i]
-        setSttStatus(`转写中（${i + 1}/${recordings.length}）`)
-        const blob = await ensureRecordingBlob(r.id)
-
-        const res = await sttTranscribe({
-          audio: blob,
-          filename: `recording_${r.id}.${extFromMime(blob.type || r.mimeType || 'audio/webm')}`,
-          provider: sttProvider,
-          model: sttModel,
-          language: 'zh',
-        })
-        refreshApiLogs()
-        if (!res?.ok) throw new Error(`${res?.error?.code ?? 'ERROR'}: ${res?.error?.message ?? '请求失败'}`)
-        const text = String(res.text ?? '').trim()
-        if (text) parts.push(text)
+      for (let i = 0; i < recordingsAsc.length; i++) {
+        const r = recordingsAsc[i]
+        setSttStatus(`转写中（${i + 1}/${recordingsAsc.length}）`)
+        setRecordingSttError((prev) => ({ ...prev, [r.id]: '' }))
+        setRecordingSttStatus((prev) => ({ ...prev, [r.id]: 'transcribing' }))
+        try {
+          const blob = await ensureRecordingBlob(r.id)
+          const res = await sttTranscribe({
+            audio: blob,
+            filename: `recording_${r.id}.${extFromMime(blob.type || r.mimeType || 'audio/webm')}`,
+            provider: sttProvider,
+            model: sttModel,
+            language: 'zh',
+            recordingId: r.id,
+          })
+          refreshApiLogs()
+          if (!res?.ok) throw new Error(`${res?.error?.code ?? 'ERROR'}: ${res?.error?.message ?? '请求失败'}`)
+          okCount++
+          setRecordingSttStatus((prev) => ({ ...prev, [r.id]: 'done' }))
+        } catch (e: any) {
+          failCount++
+          setRecordingSttStatus((prev) => ({ ...prev, [r.id]: '' }))
+          setRecordingSttError((prev) => ({ ...prev, [r.id]: e?.message ?? String(e) }))
+        }
       }
 
-      const merged = parts.join('\n\n')
+      await loadRecordings(activeProjectId)
+      const merged = mergedTranscriptFromRecordings
       setTranscriptText(merged)
       localStorage.setItem(LS_TRANSCRIPT_PREFIX + activeProjectId, merged)
       await saveProjectDraft(activeProjectId, merged)
       refreshApiLogs()
-      setSttStatus('')
+      setSttStatus(failCount ? `完成（成功 ${okCount}，失败 ${failCount}）` : '完成')
+      window.setTimeout(() => setSttStatus(''), 1200)
     } catch (e: any) {
       setSttStatus('')
       setSttError(e?.message ?? String(e))
@@ -618,38 +694,139 @@ function App() {
               <button className="btn" type="button" onClick={() => void stopRecording()} disabled={!isRecording}>
                 停止录音
               </button>
-              {isRecording ? <div className="muted">已录：{formatDurationMs(recordingElapsedMs)}</div> : null}
+              {isRecording ? (
+                <div className="recordingLive">
+                  <span className="recDot" />
+                  <RecordingWaveform stream={mediaStreamRef.current} />
+                  <span className="muted">{formatDurationMs(recordingElapsedMs)}</span>
+                </div>
+              ) : null}
             </div>
             {recordingStatus ? <div className="placeholder">{recordingStatus}</div> : null}
             {recordingError ? <div className="errorText">{recordingError}</div> : null}
 
             <div className="sectionTitle">录音列表</div>
             <div className="actions">
-              <select
-                className="input"
-                value={selectedRecordingId ?? ''}
-                onChange={(e) => setSelectedRecordingId(e.target.value || null)}
-                disabled={recordings.length === 0}
-              >
-                {recordings.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {new Date(r.createdAt).toLocaleString()} {r.durationMs ? `(${formatDurationMs(r.durationMs)})` : ''}
-                  </option>
-                ))}
-              </select>
               <button
                 className="btn"
                 type="button"
-                onClick={() => selectedRecordingId && void ensureRecordingBlob(selectedRecordingId)}
-                disabled={!selectedRecordingId}
+                onClick={() => {
+                  const next: Record<string, boolean> = {}
+                  for (const r of recordings) next[r.id] = true
+                  setSelectedRecordingIds(next)
+                }}
+                disabled={recordings.length === 0}
               >
-                加载并播放
+                全选
               </button>
+              <button className="btn" type="button" onClick={() => setSelectedRecordingIds({})} disabled={selectedIds.length === 0}>
+                取消全选
+              </button>
+              <button
+                className="btn danger"
+                type="button"
+                onClick={() => void (async () => {
+                  if (selectedIds.length === 0) return
+                  const ok = window.confirm(`删除 ${selectedIds.length} 条录音？`)
+                  if (!ok) return
+                  const res = (await bulkDeleteRecordings(selectedIds)) as any
+                  refreshApiLogs()
+                  if (!res?.ok) return window.alert(res?.error?.message ?? '删除失败')
+                  setRecordingBlobs({})
+                  setOpenPlayers({})
+                  setSelectedRecordingIds({})
+                  if (activeProjectId) await loadRecordings(activeProjectId)
+                })()}
+                disabled={selectedIds.length === 0}
+              >
+                删除所选
+              </button>
+              {activeProjectId ? (
+                <button className="btn" type="button" onClick={() => void loadRecordings(activeProjectId)}>
+                  刷新
+                </button>
+              ) : null}
             </div>
-            {selectedRecordingId && recordingBlobs[selectedRecordingId] ? (
-              <AudioPlayer source={recordingBlobs[selectedRecordingId]} />
+
+            {recordingsAsc.length === 0 ? (
+              <div className="placeholder">当前项目还没有录音。</div>
             ) : (
-              <div className="placeholder">选择一个录音后获取播放链接。</div>
+              <div className="recordingList">
+                {recordingsAsc.map((r) => (
+                  <div key={r.id} className="recordingItem">
+                    <div className="recordingRow">
+                      <label className="check">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selectedRecordingIds[r.id])}
+                          onChange={(e) => setSelectedRecordingIds((prev) => ({ ...prev, [r.id]: e.target.checked }))}
+                        />
+                      </label>
+                      <div className="recordingMeta">
+                        <div className="recordingTitle">
+                          {new Date(r.createdAt).toLocaleString()}{' '}
+                          {r.durationMs ? <span className="muted">({formatDurationMs(r.durationMs)})</span> : null}
+                        </div>
+                        <div className="muted">
+                          {r.mimeType ? r.mimeType : 'audio'} {r.sizeBytes ? `· ${Math.round(Number(r.sizeBytes) / 1024)}KB` : ''}
+                        </div>
+                      </div>
+                      <div className="recordingActions">
+                        <button
+                          className="btn"
+                          type="button"
+                          onClick={() => void (async () => {
+                            await ensureRecordingBlob(r.id)
+                            setOpenPlayers((prev) => ({ ...prev, [r.id]: true }))
+                          })()}
+                        >
+                          播放
+                        </button>
+                        <button className="btn" type="button" onClick={() => void transcribeOneRecording(r)} disabled={recordingSttStatus[r.id] === 'transcribing'}>
+                          {recordingSttStatus[r.id] === 'transcribing' ? '转写中…' : '转写'}
+                        </button>
+                        <button
+                          className="btn danger"
+                          type="button"
+                          onClick={() => void (async () => {
+                            const ok = window.confirm('删除这条录音？')
+                            if (!ok) return
+                            const res = (await deleteRecording(r.id)) as any
+                            refreshApiLogs()
+                            if (!res?.ok) return window.alert(res?.error?.message ?? '删除失败')
+                            setSelectedRecordingIds((prev) => {
+                              const next = { ...prev }
+                              delete next[r.id]
+                              return next
+                            })
+                            setRecordingBlobs((prev) => {
+                              const next = { ...prev }
+                              delete next[r.id]
+                              return next
+                            })
+                            setOpenPlayers((prev) => {
+                              const next = { ...prev }
+                              delete next[r.id]
+                              return next
+                            })
+                            if (activeProjectId) await loadRecordings(activeProjectId)
+                          })()}
+                        >
+                          删除
+                        </button>
+                      </div>
+                    </div>
+
+                    {recordingSttError[r.id] ? <div className="errorText">{recordingSttError[r.id]}</div> : null}
+                    {r.transcriptText ? <div className="recordingTranscript">{r.transcriptText}</div> : null}
+                    {openPlayers[r.id] && recordingBlobs[r.id] ? (
+                      <div className="recordingPlayer">
+                        <AudioPlayer source={recordingBlobs[r.id]} />
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
@@ -676,8 +853,24 @@ function App() {
               ) : null}
             </div>
             <div className="actions">
-              <button className="btn" type="button" onClick={() => void runApiTranscription()} disabled={!selectedRecording}>
-                开始转写
+              <button className="btn" type="button" onClick={() => void runApiTranscriptionAll()} disabled={recordingsAsc.length === 0}>
+                转写全部
+              </button>
+              <button
+                className="btn"
+                type="button"
+                onClick={() => void (async () => {
+                  if (!activeProjectId) return
+                  const merged = mergedTranscriptFromRecordings
+                  setTranscriptText(merged)
+                  localStorage.setItem(LS_TRANSCRIPT_PREFIX + activeProjectId, merged)
+                  const res = (await saveProjectDraft(activeProjectId, merged)) as any
+                  refreshApiLogs()
+                  if (!res?.ok) window.alert(res?.error?.message ?? '保存失败')
+                })()}
+                disabled={!activeProjectId}
+              >
+                汇总到文本
               </button>
               <select className="input" value={sttProvider} onChange={(e) => setSttProvider(e.target.value)}>
                 {models?.providers
@@ -739,6 +932,9 @@ function App() {
             <div className="actions">
               <button className="btn" type="button" onClick={() => (clearApiLogs(), refreshApiLogs())}>
                 清空
+              </button>
+              <button className="btn" type="button" onClick={() => clearLocalProjectCache()}>
+                清理本地缓存
               </button>
               <button className="btn" type="button" onClick={() => void loadProjects()}>
                 刷新项目

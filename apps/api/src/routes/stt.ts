@@ -8,11 +8,13 @@ import { apiError } from '../errors.js'
 import { createOpenAIClient } from '../providers/openaiClient.js'
 import { getModelRegistry, isModelAllowed, type ProviderId } from '../modelRegistry.js'
 import { doubaoQuery, doubaoSubmit } from '../providers/doubaoAsr.js'
+import type { Db } from '../db.js'
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024
 
-export async function registerSttRoutes(app: FastifyInstance) {
+export async function registerSttRoutes(app: FastifyInstance, db: Db) {
   app.post('/api/stt/transcribe', { preHandler: [(app as any).requireAuth] }, async (req, reply) => {
+    const userId = (req as any).user.id as string
     const registry = getModelRegistry()
 
     if (!req.isMultipart()) {
@@ -28,6 +30,7 @@ export async function registerSttRoutes(app: FastifyInstance) {
     const provider = (fields.provider?.value ?? registry.defaults.stt.provider) as ProviderId
     const model = (fields.model?.value ?? registry.defaults.stt.model) as string
     const language = (fields.language?.value ?? undefined) as string | undefined
+    const recordingId = (fields.recordingId?.value ?? undefined) as string | undefined
 
     const providerDef = registry.providers[provider]
     if (!providerDef || !providerDef.enabled) {
@@ -99,6 +102,15 @@ export async function registerSttRoutes(app: FastifyInstance) {
           if (q.ok) {
             await fs.promises.rm(servePath, { force: true }).catch(() => {})
             const duration = (Date.now() - started) / 1000
+            if (recordingId) {
+              const owned = await db.pool.query('select id from recordings where id=$1 and user_id=$2', [recordingId, userId])
+              if (owned.rowCount) {
+                await db.pool.query(
+                  'insert into transcripts (id, user_id, recording_id, text, provider, model) values ($1,$2,$3,$4,$5,$6)',
+                  [randomUUID(), userId, recordingId, q.text, provider, model],
+                )
+              }
+            }
             return reply.send({ ok: true, text: q.text, provider, model, duration })
           }
 
@@ -127,9 +139,19 @@ export async function registerSttRoutes(app: FastifyInstance) {
           language,
         })
         const duration = (Date.now() - started) / 1000
+        const text = String(result.text ?? '').trim()
+        if (recordingId && text) {
+          const owned = await db.pool.query('select id from recordings where id=$1 and user_id=$2', [recordingId, userId])
+          if (owned.rowCount) {
+            await db.pool.query(
+              'insert into transcripts (id, user_id, recording_id, text, provider, model) values ($1,$2,$3,$4,$5,$6)',
+              [randomUUID(), userId, recordingId, text, provider, model],
+            )
+          }
+        }
         return reply.send({
           ok: true,
-          text: result.text,
+          text,
           provider,
           model,
           duration,

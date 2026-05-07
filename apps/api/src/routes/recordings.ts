@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { Db } from '../db.js'
 import { apiError } from '../errors.js'
 import type { S3Client } from '@aws-sdk/client-s3'
-import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { presignGetUrl, presignPutUrl } from '../r2.js'
 
 function safeExt(ext: string) {
@@ -121,10 +121,67 @@ export function registerRecordingRoutes(app: FastifyInstance, db: Db, s3: S3Clie
     const q = await db.pool.query(
       `select id, project_id as "projectId", created_at as "createdAt", duration_ms as "durationMs",
               mime_type as "mimeType", size_bytes as "sizeBytes", r2_key as "r2Key"
+            , (
+              select t.text
+              from transcripts t
+              where t.user_id=$1 and t.recording_id=recordings.id
+              order by t.created_at desc
+              limit 1
+            ) as "transcriptText"
+            , (
+              select t.provider
+              from transcripts t
+              where t.user_id=$1 and t.recording_id=recordings.id
+              order by t.created_at desc
+              limit 1
+            ) as "transcriptProvider"
+            , (
+              select t.model
+              from transcripts t
+              where t.user_id=$1 and t.recording_id=recordings.id
+              order by t.created_at desc
+              limit 1
+            ) as "transcriptModel"
        from recordings where user_id=$1 and project_id=$2 order by created_at desc`,
       [userId, projectId],
     )
     return reply.send({ ok: true, recordings: q.rows })
+  })
+
+  app.delete('/api/recordings/:recordingId', { preHandler: [(app as any).requireAuth] }, async (req, reply) => {
+    const userId = (req as any).user.id as string
+    const recordingId = String((req.params as any).recordingId)
+
+    const q = await db.pool.query('select r2_key as "r2Key" from recordings where id=$1 and user_id=$2', [recordingId, userId])
+    if (!q.rowCount) return reply.code(404).send(apiError('NOT_FOUND', 'recording not found'))
+    const r2Key = (q.rows[0] as any).r2Key as string
+
+    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: r2Key }))
+    await db.pool.query('delete from recordings where id=$1 and user_id=$2', [recordingId, userId])
+    return reply.send({ ok: true })
+  })
+
+  app.post('/api/recordings/bulk-delete', { preHandler: [(app as any).requireAuth] }, async (req, reply) => {
+    const userId = (req as any).user.id as string
+    const ids = ((req.body as any)?.ids ?? []) as unknown
+    if (!Array.isArray(ids) || ids.length === 0) return reply.code(400).send(apiError('BAD_REQUEST', 'missing ids'))
+    const recordingIds = ids.map((v) => String(v)).filter(Boolean)
+    if (recordingIds.length === 0) return reply.code(400).send(apiError('BAD_REQUEST', 'missing ids'))
+
+    const q = await db.pool.query(
+      `select id, r2_key as "r2Key"
+       from recordings
+       where user_id=$1 and id = any($2::text[])`,
+      [userId, recordingIds],
+    )
+
+    for (const r of q.rows as any[]) {
+      const r2Key = String(r.r2Key || '')
+      if (r2Key) await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: r2Key }))
+    }
+
+    await db.pool.query('delete from recordings where user_id=$1 and id = any($2::text[])', [userId, recordingIds])
+    return reply.send({ ok: true, deleted: q.rowCount })
   })
 
   app.get('/api/recordings/:recordingId/signed-url', { preHandler: [(app as any).requireAuth] }, async (req, reply) => {

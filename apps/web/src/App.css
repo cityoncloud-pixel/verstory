@@ -229,6 +229,85 @@
   cursor: not-allowed;
 }
 
+.btn.danger {
+  background: linear-gradient(180deg, rgba(225, 29, 72, 0.35), rgba(225, 29, 72, 0.14));
+  border-color: rgba(225, 29, 72, 0.35);
+}
+
+.recordingLive {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.recDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #e11d48;
+  box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.18);
+}
+
+.recordWave {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.18);
+  padding: 2px 8px;
+}
+
+.recordingList {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recordingItem {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.recordingRow {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.check input {
+  width: 16px;
+  height: 16px;
+}
+
+.recordingTitle {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.recordingActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.recordingTranscript {
+  margin-top: 10px;
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.recordingPlayer {
+  margin-top: 10px;
+}
+
 .projectList {
   list-style: none;
   padding: 0;

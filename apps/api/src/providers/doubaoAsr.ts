@@ -75,8 +75,13 @@ export async function doubaoSubmit(params: {
   const statusCode = res.headers.get('X-Api-Status-Code')
   if (statusCode && statusCode !== '20000000') {
     return apiError('INTERNAL_ERROR', 'doubao submit failed', {
+      url,
+      requestId,
+      resourceId: params.resourceId,
+      audioUrl: params.audioUrl,
       statusCode,
       message: res.headers.get('X-Api-Message'),
+      body: text?.slice?.(0, 300),
     })
   }
 
@@ -146,6 +151,9 @@ export async function doubaoQuery(params: {
     return {
       ok: false,
       error: apiError(code, 'doubao query failed', {
+        url,
+        requestId: params.requestId,
+        resourceId: params.resourceId,
         statusCode,
         message,
         body: text.slice(0, 300),

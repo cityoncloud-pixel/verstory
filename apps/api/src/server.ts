@@ -148,7 +148,7 @@ export async function buildServer() {
     secretAccessKey: config.R2_SECRET_ACCESS_KEY,
   })
 
-  registerProjectRoutes(app, db)
+  registerProjectRoutes(app, db, s3, config.R2_BUCKET)
   registerRecordingRoutes(app, db, s3, config.R2_BUCKET)
   registerProjectTextRoutes(app, db)
 
@@ -161,7 +161,7 @@ export async function buildServer() {
     return reply.type('application/octet-stream').send(stream)
   })
 
-  await registerSttRoutes(app)
+  await registerSttRoutes(app, db)
   await registerTextRefineRoutes(app)
 
   app.setErrorHandler((err: unknown, _req, reply) => {

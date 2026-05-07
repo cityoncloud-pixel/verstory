@@ -193,6 +193,18 @@ export async function listRecordings(projectId: string) {
   return authedJsonFetch(`${getApiBase()}/api/projects/${encodeURIComponent(projectId)}/recordings`, { method: 'GET' })
 }
 
+export async function deleteRecording(recordingId: string) {
+  return authedJsonFetch(`${getApiBase()}/api/recordings/${encodeURIComponent(recordingId)}`, { method: 'DELETE' })
+}
+
+export async function bulkDeleteRecordings(ids: string[]) {
+  return authedJsonFetch(`${getApiBase()}/api/recordings/bulk-delete`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  })
+}
+
 export async function getRecordingSignedUrl(recordingId: string) {
   return authedJsonFetch(`${getApiBase()}/api/recordings/${encodeURIComponent(recordingId)}/signed-url`, { method: 'GET' })
 }
@@ -237,11 +249,13 @@ export async function sttTranscribe(params: {
   provider: string
   model: string
   language?: string
+  recordingId?: string
 }) {
   const form = new FormData()
   form.append('provider', params.provider)
   form.append('model', params.model)
   if (params.language) form.append('language', params.language)
+  if (params.recordingId) form.append('recordingId', params.recordingId)
   form.append('audio', params.audio, params.filename)
 
   return authedJsonFetch(`${getApiBase()}/api/stt/transcribe`, { method: 'POST', body: form })
