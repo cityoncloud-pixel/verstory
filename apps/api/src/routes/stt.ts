@@ -12,7 +12,7 @@ import { doubaoQuery, doubaoSubmit } from '../providers/doubaoAsr.js'
 const MAX_FILE_BYTES = 25 * 1024 * 1024
 
 export async function registerSttRoutes(app: FastifyInstance) {
-  app.post('/api/stt/transcribe', async (req, reply) => {
+  app.post('/api/stt/transcribe', { preHandler: [(app as any).requireAuth] }, async (req, reply) => {
     const registry = getModelRegistry()
 
     if (!req.isMultipart()) {

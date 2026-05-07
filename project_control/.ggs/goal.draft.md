@@ -1,88 +1,58 @@
 # Goal
 
 ## 1. Intent / 原始意图
-构建一个“口述自传式故事记录与整理”的网页应用 MVP：用户在浏览器里创建项目、分段录音并保存；系统将音频转写为文字，并在“尊重原意、不虚构不改动事实”的前提下，对口述文本做轻度整理（去口头语/断句/重复、改善顺序与结构），生成更通顺连贯的故事文本；用户可查看原始转写与整理后故事，并继续追加录音与再次整理。
+将 Verstory 从“本地存储 MVP”推进到“可跨设备使用的云端版本”：
+用户用邮箱/密码登录后，在网页里创建项目、录音、转写、改写；录音与文本结果都保存到服务器（录音进 Cloudflare R2，对应元数据与文本进 Postgres），在不同设备/浏览器上登录同一账号也能继续编辑与查看历史。
+同时优化现有 UI：更美观、适配手机/平板/桌面，并将“转写中 / 改写中”的状态放回各自板块内显示（不再用全局漂浮状态）。
 
 ## 2. Target Outcome / 目标结果
-在本机环境可运行的 Web 应用 MVP（本地启动即可使用），实现端到端流程：项目管理 → 分段录音 → 保存/回放 → 转写（可先 mock）→ 故事整理生成（可先 mock）→ 持久化 → 导出故事文本（Markdown）。
+交付一个可部署到生产环境的“云端存储版”最小闭环（Phase Cloud-0001）：
+- 后端（`https://story-api.suenbeya.com`）：提供登录鉴权、项目/录音/转写/改写的 REST API；使用 Postgres 持久化数据；使用 Cloudflare R2 存储音频；并支持前端通过预签名 URL 直传/直取音频。
+- 前端（`https://story.suenbeya.com`）：提供登录页与项目工作台；在桌面/平板/手机下布局自适应；录音、转写、改写各自板块内展示自己的“进行中/失败/完成”状态；支持跨设备刷新后继续。
 
 ## 3. Success Criteria / 成功标准
-1) 可观察行为：在浏览器中创建一个项目后，完成至少 2 段录音（开始/停止/继续录音），页面展示录音片段列表（含时长/创建时间），每段可回放。
-2) 可观察行为：点击“转写”后，系统为每段音频生成对应转写文本，并给出合并后的“原始转写全文”（MVP 允许使用 mock provider，但必须能跑通端到端 UI/数据流）。
-3) 可观察行为：点击“生成故事”后，输出“整理后故事文本”，并明确声明整理原则（不虚构、不改动事实；仅做必要的语病/断句/去口头语/结构整理）；用户可在页面同时查看原始转写与故事文本。
-4) 可观察行为：刷新页面后，已创建项目、录音片段元数据、转写文本与故事文本仍可恢复（本地持久化）。
-5) 可观察行为（mock 验收）：在无网络/无密钥情况下，mock provider 仍能生成确定性（可重复）的转写与故事输出（例如基于固定模板/固定伪输入），以保证端到端流程可验收。
-6) 可验证命令：项目在本机可通过 `npm run build`（或仓库既定等价构建命令）成功构建产物；并能通过 `npm run dev`（或等价启动命令）启动后完成上述行为验收。（若仓库并非 Node 生态，则在执行阶段替换为实际栈的等价命令。）
+1) 登录可用：仅允许预置用户登录；未登录访问受保护 API 返回 401；支持重置密码（通过 DB 更新或管理员接口，二选一）。
+2) 云端录音存储：录音完成后，音频上传至 R2（私有 bucket）；Postgres 中保存 recording 元数据（时长、mime、size、r2_key、createdAt、projectId、userId）。
+3) 跨设备验证：在设备 A 录音并上传后，设备 B 登录同一账号能看到项目与录音列表，并能播放该录音（通过短期签名 GET URL 或后端代理流）。
+4) 转写/改写状态归位：点击转写时，“转写中”仅显示在转写板块标题栏（Badge + spinner）；点击改写时，“改写中”仅显示在改写板块标题栏；任一失败只影响对应板块并显示错误信息。
+5) 响应式可用：桌面（≥1024）、平板（768–1024）、手机（≤768）三档布局均不溢出；关键操作在手机端无需横向滚动即可完成录音→转写→改写。
+6) 可验证命令：本地可通过 `npm run dev` 启动前后端并跑通一次完整流程；`npm run build` 成功。
 
 ## 4. Scope / 范围
 ### In
-- 单用户、本地优先的项目管理：创建/重命名/删除项目（最少创建与选择项目即可）。
-- 浏览器端录音与分段追加：开始/停止/继续；片段列表与回放。
-- 音频片段与文本的本地持久化（例如 IndexedDB）；可恢复历史项目状态。
-- Provider 抽象：转写与整理以可插拔接口实现；默认 mock provider 跑通流程（不依赖外部 API）。
-- 故事文本导出（Markdown 文件或复制到剪贴板，至少一种）。
-
+- Postgres 数据库（用户、项目、录音元数据、转写文本、改写文本、任务状态）。
+- 云端音频存储：Cloudflare R2 私有 bucket；前端使用预签名 PUT 直传，避免音频穿过 API 服务器。
+- 简易登录：邮箱/密码登录；仅预置用户；不开放注册。
+- UI 重构：响应式布局 + 卡片化板块（录音/转写/改写）+ 每板块独立状态。
 ### Out
-- 账号登录、权限管理、跨设备同步、多用户协作。
-- 生产级实时转写、说话人分离、噪声抑制、复杂编辑器能力（富文本协作/版本对比等）。
-- 完整的平板/iPadOS Safari 兼容性保证（作为后续里程碑；MVP 以桌面 Chromium 为主）。
-- 付费/计费、配额管理、审计与合规模块。
+- 多租户协作、邀请、权限细粒度管理（仅做到“用户只能访问自己的数据”）。
+- 计费/配额/审计与合规模块。
+- 实时流式转写（本阶段只做录完上传后转写）。
 
 ## 5. Constraints / 约束
-- Tech/Platform: Web 应用；录音使用浏览器音频能力（`MediaRecorder`）；本地存储（IndexedDB/LocalStorage）；provider 可选接入云端 API 但 MVP 不强依赖（见 `assumptions.md` A-0004）。
-- Time: 以 MVP 可验收为目标，优先端到端跑通与可复用架构，避免过度工程化。
-- Tools: 允许在 Codex/Cursor 环境下开发；不强制外部服务依赖；如接云端 API，需通过环境变量/配置注入密钥。
-- Style/Architecture: 清晰分层（UI / domain / providers / storage）；provider 接口可替换；坚持“尊重原意”与“不可虚构”原则可配置/可审计（至少在 UI 文案与整理指令中体现）。
-- Cost: 默认零外部成本（mock）；如启用云端模型，需可关闭并提示潜在费用。
-
-### “尊重原意”不可变规则（MVP 至少体现在生成指令与 UI 提示）
-- 禁止虚构：不得添加录音/转写中未出现的新事实、人物、时间地点、经历。
-- 禁止改事实：不得将不确定表述改成确定结论；不得替用户下判断或编造动机。
-- 允许的编辑：断句、去口头语/重复、语病修正、代词指代澄清（不改变含义）、段落结构重排以提升可读性。
-- 风格保留：尽量保留第一人称叙述与原本语气；不做“文学化夸张改写”。
+- 域名：前端 `story.suenbeya.com`，后端 `story-api.suenbeya.com`（跨子域）。登录态以“尽量不复杂”为原则：优先使用 HttpOnly Cookie + `Domain=.suenbeya.com` + `SameSite=Lax`，前端请求使用 `credentials: include`。
+- R2：bucket 默认私有，不开启公开访问；只通过短期预签名 URL 访问对象。
+- 不在仓库中写入任何密钥；仅通过环境变量配置（示例写进 `.env.example`）。
 
 ## 6. Inputs / 输入材料
-- Existing files / repo: UNKNOWN（假设允许在现有仓库中新增/改造前端工程；若仓库已存在固定技术栈，以其为准，见 `assumptions.md` A-0001）。
-- References: `project_control/.ggs/idea.md`（需求描述与原则）；`project_control/.ggs/templates/goal.schema.md`（Hard Gates）。
+- Existing repo：当前 `apps/web` 已有录音与本地 IndexedDB 存储实现；`apps/api` 已有 STT/text API 雏形与部署域名。
+- Owner-provided config：`DATABASE_URL`（Postgres），以及 R2 的 endpoint/bucket/accessKey/secretKey（仅放环境变量）。
 
-## 7. Output Format / 输出格式
-- Required artifacts (files/modules/docs):
-  - 可运行的 Web 应用代码（含页面与核心逻辑模块）。
-  - `TranscriptionProvider` 与 `StoryPolishProvider`（或等价命名）的接口与默认实现（mock 实现必须可用）。
-  - 本地存储层（项目/片段/文本的读写与迁移策略，最少可恢复）。
-  - 最小使用说明（README 或应用内说明）与验收步骤（如何启动、如何完成一次录音→转写→生成故事→导出）。
+## 7. Output Format / 输出
+- 代码：后端鉴权 + Postgres schema/migrations + R2 预签名上传/下载接口；前端登录与响应式 UI。
+- 文档：新增/更新部署与本地开发说明（包含必需 env 列表，但不包含真实值）。
 
 ## 8. Risks / 风险
-- Unknowns / decisions needed:
-  - 转写与整理的真实 provider 选择（本地离线 vs 云端 API）、隐私与成本要求未定（见 `idea.md` Q&A）。
-  - iPadOS Safari 对录音/后台行为的限制可能导致功能差异，需要单独兼容策略。
-  - “尊重原意”的可配置边界与可审计性需求未定，可能影响产品体验与实现复杂度。
+- 跨子域 Cookie/CORS 配置不一致导致登录态不稳定（需要在后端 CORS 与前端 fetch 处同时配置 credentials）。
+- 音频文件体积与上传失败：需要做基本重试与错误提示。
 
-## 9. Execution Handoff / 给 GAEH 的执行指令
+## 9. Execution Handoff / 执行交接（给 GAEH）
 recommended_route:
-- Spec -> Plan -> Review -> Execute（先 mock 跑通全链路，再可选接真实 provider）
-
+- Spec -> Plan -> Review -> Execute（先把 Auth + 存储打通，再做 UI 与迁移）。
 seed_tasks:
-- 定义数据模型：Project、RecordingSegment、Transcript、Story（含版本/更新时间）。
-- 实现浏览器录音：MediaRecorder 分段录制、片段列表、回放、删除。
-- 实现本地持久化：IndexedDB（或等价方案）存储项目/片段元数据与文本结果；刷新恢复。
-- 设计 provider 接口与默认 mock：TranscriptionProvider、StoryPolishProvider；mock 输出确定性文本。
-- 实现 UI：原始转写与故事并排展示；“转写/生成故事/导出”按钮与状态提示。
-- 实现导出：将故事以 Markdown 导出/复制。
-- 补齐最小文档与验收步骤。
+- 设计并落库 Postgres schema（users/projects/recordings/transcripts/rewrites/jobs）。
+- 后端：登录（预置用户）+ JWT/refresh cookie；受保护路由中间件。
+- 后端：R2 预签名 PUT/GET（按 project/user 生成 r2_key）。
+- 前端：登录页 + API client 支持 credentials；工作台 UI 响应式改造；状态归位。
+- 可选：本地 IndexedDB 数据迁移到云端的一键迁移按钮（后置）。
 
-spec_outline:
-- 信息架构：项目列表/项目详情/录音区/文本区/导出区。
-- 状态机：idle -> recording -> recorded -> transcribing -> polished -> exported（或等价）。
-- 存储 schema：projects、segments、texts（键与索引）。
-- provider 接口：输入/输出、错误处理、取消/重试策略。
-- 整理规则：不可变禁止项与允许编辑项；展示给用户的提示文案。
-
-verification_plan:
-- 启动应用：执行仓库既定启动命令（默认 `npm run dev`）并打开页面。
-- 创建项目并录两段音频：开始/停止/继续录音；确认列表可回放。
-- 点击转写：确认每段出现转写文本与合并全文（mock 情况下也应有确定性输出）。
-- 点击生成故事：确认出现故事文本且声明整理原则；对比原文确认未引入新事实（人工抽查）。
-- 刷新页面：确认项目、片段、文本仍可恢复。
-- 导出：确认可复制/下载 Markdown。
-- 构建：执行仓库既定构建命令（默认 `npm run build`）成功。

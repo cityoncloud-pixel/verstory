@@ -1,16 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 
-export function AudioPlayer({ blob }: { blob: Blob }) {
+export function AudioPlayer({ source }: { source: Blob | string }) {
   const [url, setUrl] = useState<string>('')
-  const key = useMemo(() => `${blob.type}:${blob.size}`, [blob.type, blob.size])
+  const key = useMemo(() => {
+    if (typeof source === 'string') return source
+    return `${source.type}:${source.size}`
+  }, [source])
 
   useEffect(() => {
-    const nextUrl = URL.createObjectURL(blob)
+    if (typeof source === 'string') {
+      setUrl(source || '')
+      return
+    }
+    const nextUrl = URL.createObjectURL(source)
     setUrl(nextUrl)
     return () => URL.revokeObjectURL(nextUrl)
-    // blob reference is stable from IndexedDB objects; key change forces refresh
-  }, [blob, key])
+  }, [source, key])
 
+  if (!url) return null
   return <audio controls src={url} />
 }
-

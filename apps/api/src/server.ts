@@ -1,16 +1,30 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import multipart from '@fastify/multipart'
-import { apiError } from './errors.js'
-import { getModelRegistry } from './modelRegistry.js'
-import { registerSttRoutes } from './routes/stt.js'
-import { registerTextRefineRoutes } from './routes/textRefine.js'
+import cookie from '@fastify/cookie'
+import jwt from '@fastify/jwt'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { apiError } from './errors.js'
 import { getCallLogs, recordCall } from './callLog.js'
+import { getModelRegistry } from './modelRegistry.js'
+import { getConfig } from './config.js'
+import { createDb, migrate } from './db.js'
+import { authPlugin, ensurePreprovisionedUsers } from './auth.js'
+import { createR2Client } from './r2.js'
+import { registerProjectRoutes } from './routes/projects.js'
+import { registerRecordingRoutes } from './routes/recordings.js'
+import { registerProjectTextRoutes } from './routes/projectTexts.js'
+import { registerSttRoutes } from './routes/stt.js'
+import { registerTextRefineRoutes } from './routes/textRefine.js'
 
 export async function buildServer() {
+  const config = getConfig()
+  const db = createDb(config.DATABASE_URL, { sslRejectUnauthorized: config.PG_SSL_REJECT_UNAUTHORIZED })
+  await migrate(db)
+  await ensurePreprovisionedUsers(db, config)
+
   const app = Fastify({ logger: true })
 
   app.addHook('onRequest', async (req) => {
@@ -62,6 +76,7 @@ export async function buildServer() {
   })
 
   await app.register(cors, {
+    credentials: true,
     origin: (origin, cb) => {
       if (!origin) return cb(null, true)
       const allow = [
@@ -75,6 +90,9 @@ export async function buildServer() {
       return cb(new Error('CORS_NOT_ALLOWED'), false)
     },
   })
+
+  await app.register(cookie)
+  await app.register(jwt, { secret: config.JWT_ACCESS_SECRET })
 
   await app.register(multipart, {
     limits: {
@@ -115,14 +133,26 @@ export async function buildServer() {
     return reply.send({ ok: true, providers: results })
   })
 
-  // minimal diagnostics: last N API calls (in-memory), optional JSONL file via API_CALL_LOG_PATH
   app.get('/api/admin/calls', async (req, reply) => {
     const limit = Number((req.query as any)?.limit ?? 200)
     const n = Number.isFinite(limit) ? limit : 200
     return reply.send({ ok: true, logs: getCallLogs(n) })
   })
 
-  // 临时音频文件服务（仅用于 Doubao 标准版拉取音频 URL；MVP：不做鉴权，只给短期存活的随机路径）
+  const { requireAuth } = authPlugin(app, db, config)
+  ;(app as any).requireAuth = requireAuth
+
+  const s3 = createR2Client({
+    endpoint: config.R2_ENDPOINT,
+    accessKeyId: config.R2_ACCESS_KEY_ID,
+    secretAccessKey: config.R2_SECRET_ACCESS_KEY,
+  })
+
+  registerProjectRoutes(app, db)
+  registerRecordingRoutes(app, db, s3, config.R2_BUCKET)
+  registerProjectTextRoutes(app, db)
+
+  // Temporary file endpoint used by existing Doubao flow; kept for backward compatibility.
   app.get('/api/stt/tmp/:id', async (req, reply) => {
     const id = (req.params as any).id as string
     const filePath = path.join(os.tmpdir(), 'verstory-stt-serve', id)

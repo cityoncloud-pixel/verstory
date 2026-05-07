@@ -1,5 +1,7 @@
 export type ApiErrorCode =
   | 'BAD_REQUEST'
+  | 'UNAUTHORIZED'
+  | 'NOT_FOUND'
   | 'PROVIDER_DISABLED'
   | 'MODEL_NOT_ALLOWED'
   | 'MISSING_API_KEY'
@@ -17,4 +19,3 @@ export function apiError(
 ): ApiErrorBody {
   return { ok: false, error: { code, message, details } }
 }
-

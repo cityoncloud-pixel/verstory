@@ -1,33 +1,55 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
-import {
-  deleteProject,
-  deleteSegment,
-  type Project,
-  type RecordingSegment,
-  listProjects,
-  listSegments,
-  putProject,
-  putSegment,
-} from './db'
 import { AudioPlayer } from './AudioPlayer'
-import { MockStoryPolishProvider } from './providers/polish'
-import { MockTranscriptionProvider } from './providers/transcription'
-import { fetchModels, sttTranscribe, textRefine, type ModelsResponse } from './apiClient'
+import {
+  completeRecording,
+  createProjectApi,
+  deleteProjectApi,
+  fetchModels,
+  getRecordingBlob,
+  getProjectTexts,
+  initRecordingUpload,
+  listProjectsApi,
+  listRecordings,
+  login,
+  logout,
+  rollbackProjectFinal,
+  saveProjectDraft,
+  saveProjectFinal,
+  setAccessToken,
+  sttTranscribe,
+  textRefine,
+  type ModelsResponse,
+  uploadRecordingProxy,
+} from './apiClient'
 import { clearApiLogs, getApiLogs } from './apiLog'
 
-const LS_ACTIVE_PROJECT_KEY = 'verstory.activeProjectId.v1'
-const LS_TRANSCRIPT_PREFIX = 'verstory.transcript.v1.'
-const LS_STORY_PREFIX = 'verstory.story.v1.'
+const LS_ACTIVE_PROJECT_KEY = 'verstory.activeProjectId.v2'
+const LS_TRANSCRIPT_PREFIX = 'verstory.transcript.v2.'
+const LS_STORY_PREFIX = 'verstory.story.v2.'
 const MAX_RECORDING_MS = 5 * 60 * 1000
 
-function nowIso() {
-  return new Date().toISOString()
+function shouldUseDirectR2Upload() {
+  const v = (import.meta as any).env?.VITE_R2_DIRECT_UPLOAD
+  return String(v ?? '').toLowerCase() === 'true'
 }
 
-function newId(prefix: string) {
-  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now()}`
+type CloudProject = {
+  id: string
+  name: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+type CloudRecording = {
+  id: string
+  projectId: string
+  createdAt: string
+  durationMs?: number | null
+  mimeType?: string | null
+  sizeBytes?: number | null
+  r2Key: string
 }
 
 function formatDurationMs(ms: number) {
@@ -35,24 +57,6 @@ function formatDurationMs(ms: number) {
   const m = Math.floor(totalSec / 60)
   const s = totalSec % 60
   return `${m}:${String(s).padStart(2, '0')}`
-}
-
-function safeFileName(input: string) {
-  return input
-    .trim()
-    .replace(/[\\/:*?"<>|]+/g, '-')
-    .replace(/\s+/g, ' ')
-    .slice(0, 80)
-}
-
-function downloadText(filename: string, text: string) {
-  const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 async function getAudioDurationMs(blob: Blob) {
@@ -72,29 +76,47 @@ async function getAudioDurationMs(blob: Blob) {
   }
 }
 
+function extFromMime(mime: string) {
+  const t = (mime || '').toLowerCase()
+  if (t.includes('ogg')) return 'ogg'
+  if (t.includes('wav')) return 'wav'
+  if (t.includes('mpeg') || t.includes('mp3')) return 'mp3'
+  if (t.includes('mp4') || t.includes('m4a')) return 'm4a'
+  return 'webm'
+}
+
 function App() {
-  const [projects, setProjects] = useState<Project[]>([])
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(() => {
-    return localStorage.getItem(LS_ACTIVE_PROJECT_KEY)
-  })
-  const [segments, setSegments] = useState<RecordingSegment[]>([])
-  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authError, setAuthError] = useState('')
+  const [authed, setAuthed] = useState(false)
 
-  const [status, setStatus] = useState<string>('')
-  const [error, setError] = useState<string>('')
+  const [projects, setProjects] = useState<CloudProject[]>([])
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(() => localStorage.getItem(LS_ACTIVE_PROJECT_KEY))
+  const [recordings, setRecordings] = useState<CloudRecording[]>([])
+  const [selectedRecordingId, setSelectedRecordingId] = useState<string | null>(null)
+  const [recordingBlobs, setRecordingBlobs] = useState<Record<string, Blob>>({})
+
+  const [recordingStatus, setRecordingStatus] = useState<string>('')
+  const [recordingError, setRecordingError] = useState<string>('')
+  const [sttStatus, setSttStatus] = useState<string>('')
+  const [sttError, setSttError] = useState<string>('')
+  const [rewriteStatus, setRewriteStatus] = useState<string>('')
+  const [rewriteError, setRewriteError] = useState<string>('')
+
   const [apiLogs, setApiLogs] = useState(() => getApiLogs())
-
-  const [transcriptText, setTranscriptText] = useState<string>('')
-  const [storyText, setStoryText] = useState<string>('')
-  const [storyRulesSummary, setStoryRulesSummary] = useState<string>('')
-
   const [models, setModels] = useState<ModelsResponse | null>(null)
   const [sttProvider, setSttProvider] = useState<string>('openai')
   const [sttModel, setSttModel] = useState<string>('gpt-4o-mini-transcribe')
   const [textProvider, setTextProvider] = useState<string>('deepseek')
   const [textModel, setTextModel] = useState<string>('deepseek-chat')
   const [refineMode, setRefineMode] = useState<'clean' | 'organize' | 'memoir' | 'goal'>('clean')
-  const buildId = (import.meta as any)?.env?.VITE_BUILD_ID as string | undefined
+
+  const [transcriptText, setTranscriptText] = useState<string>('')
+  const [storyText, setStoryText] = useState<string>('')
+  const [storyRulesSummary, setStoryRulesSummary] = useState<string>('')
+
+  const [activeTab, setActiveTab] = useState<'stt' | 'rewrite'>('stt')
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
@@ -104,9 +126,10 @@ function App() {
   const recordingStopRef = useRef<number | null>(null)
   const [recordingElapsedMs, setRecordingElapsedMs] = useState<number>(0)
 
-  const activeProject = useMemo(
-    () => projects.find((p) => p.id === activeProjectId) ?? null,
-    [projects, activeProjectId],
+  const activeProject = useMemo(() => projects.find((p) => p.id === activeProjectId) ?? null, [projects, activeProjectId])
+  const selectedRecording = useMemo(
+    () => recordings.find((r) => r.id === selectedRecordingId) ?? null,
+    [recordings, selectedRecordingId],
   )
 
   const isRecording = mediaRecorderRef.current != null
@@ -122,39 +145,67 @@ function App() {
     recordingStopRef.current = null
   }
 
+  async function loadProjects() {
+    const res = (await listProjectsApi()) as any
+    refreshApiLogs()
+    if (!res?.ok) throw new Error(res?.error?.message ?? 'failed to load projects')
+    const list = (res.projects ?? []) as CloudProject[]
+    setProjects(list)
+    if (!activeProjectId && list.length > 0) setActiveProjectId(list[0].id)
+  }
+
+  async function loadRecordings(projectId: string) {
+    const res = (await listRecordings(projectId)) as any
+    refreshApiLogs()
+    if (!res?.ok) throw new Error(res?.error?.message ?? 'failed to load recordings')
+    const list = (res.recordings ?? []) as CloudRecording[]
+    setRecordings(list)
+    if (list.length > 0) setSelectedRecordingId((prev) => prev ?? list[0].id)
+    else setSelectedRecordingId(null)
+  }
+
+  async function loadProjectTexts(projectId: string) {
+    const res = (await getProjectTexts(projectId)) as any
+    refreshApiLogs()
+    if (!res?.ok) throw new Error(res?.error?.message ?? 'failed to load texts')
+    setTranscriptText(String(res.draftText ?? ''))
+    setStoryText(String(res.finalText ?? ''))
+  }
+
   useEffect(() => {
-    let cancelled = false
     ;(async () => {
-      const loaded = await listProjects()
-      if (cancelled) return
-      setProjects(loaded)
-      if (!activeProjectId && loaded.length > 0) setActiveProjectId(loaded[0].id)
-    })().catch((e: unknown) => {
-      if (cancelled) return
-      setError(e instanceof Error ? e.message : String(e))
-    })
-    return () => {
-      cancelled = true
-    }
+      // Don't auto-refresh before login; it creates noisy 401s in local dev.
+      try {
+        await loadProjects()
+        setAuthed(true)
+      } catch {
+        setAuthed(false)
+      }
+    })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
+    if (activeProjectId) localStorage.setItem(LS_ACTIVE_PROJECT_KEY, activeProjectId)
+    else localStorage.removeItem(LS_ACTIVE_PROJECT_KEY)
+  }, [activeProjectId])
+
+  useEffect(() => {
     let cancelled = false
     if (!activeProjectId) {
-      setSegments([])
-      setSelectedSegmentId(null)
+      setRecordings([])
+      setSelectedRecordingId(null)
       return
     }
     ;(async () => {
-      const loaded = await listSegments(activeProjectId)
-      if (cancelled) return
-      setSegments(loaded)
-      if (loaded.length > 0) setSelectedSegmentId((prev) => prev ?? loaded[0].id)
-    })().catch((e: unknown) => {
-      if (cancelled) return
-      setError(e instanceof Error ? e.message : String(e))
-    })
+      try {
+        await loadRecordings(activeProjectId)
+        await loadProjectTexts(activeProjectId)
+      } catch (e: any) {
+        if (cancelled) return
+        setRecordingError(e?.message ?? String(e))
+      }
+    })()
     return () => {
       cancelled = true
     }
@@ -167,29 +218,19 @@ function App() {
       setStoryRulesSummary('')
       return
     }
+    // Local cache only as fallback for offline/temporary use.
     try {
       const tRaw = localStorage.getItem(LS_TRANSCRIPT_PREFIX + activeProjectId)
-      setTranscriptText(tRaw ?? '')
-
+      if (!transcriptText && tRaw) setTranscriptText(tRaw)
       const sRaw = localStorage.getItem(LS_STORY_PREFIX + activeProjectId)
-      if (!sRaw) {
-        setStoryText('')
-        setStoryRulesSummary('')
-        return
+      if (!storyText && sRaw) {
+        const parsed = JSON.parse(sRaw) as { text?: string; rulesSummary?: string }
+        setStoryText(parsed.text ?? '')
+        setStoryRulesSummary(parsed.rulesSummary ?? '')
       }
-      const parsed = JSON.parse(sRaw) as { text?: string; rulesSummary?: string }
-      setStoryText(parsed.text ?? '')
-      setStoryRulesSummary(parsed.rulesSummary ?? '')
     } catch {
-      setTranscriptText('')
-      setStoryText('')
-      setStoryRulesSummary('')
+      // ignore
     }
-  }, [activeProjectId])
-
-  useEffect(() => {
-    if (activeProjectId) localStorage.setItem(LS_ACTIVE_PROJECT_KEY, activeProjectId)
-    else localStorage.removeItem(LS_ACTIVE_PROJECT_KEY)
   }, [activeProjectId])
 
   useEffect(() => {
@@ -211,32 +252,59 @@ function App() {
     }
   }, [])
 
+  async function onLogin() {
+    setAuthError('')
+    const res = (await login(authEmail, authPassword)) as any
+    refreshApiLogs()
+    if (!res?.ok) {
+      setAuthError(`${res?.error?.code ?? 'ERROR'}: ${res?.error?.message ?? 'login failed'}`)
+      return
+    }
+    setAuthed(true)
+    await loadProjects()
+  }
+
+  async function onLogout() {
+    await logout()
+    refreshApiLogs()
+    setAuthed(false)
+    setProjects([])
+    setRecordings([])
+    setSelectedRecordingId(null)
+    setAccessToken('')
+  }
+
   async function createProject() {
-    const name = window.prompt('项目名称：', `我的故事项目 ${projects.length + 1}`)
+    const name = window.prompt('项目名称？', `我的故事项目 ${projects.length + 1}`)
     if (!name) return
-    const t = nowIso()
-    const next: Project = { id: newId('proj'), name, createdAt: t, updatedAt: t }
-    await putProject(next)
-    setProjects(await listProjects())
-    setActiveProjectId(next.id)
+    const res = (await createProjectApi(name)) as any
+    refreshApiLogs()
+    if (!res?.ok) {
+      window.alert(res?.error?.message ?? '创建失败')
+      return
+    }
+    await loadProjects()
   }
 
   async function onDeleteActiveProject() {
     if (!activeProject) return
-    const ok = window.confirm(`删除项目「${activeProject.name}」及其所有录音片段？此操作不可恢复。`)
+    const ok = window.confirm(`删除项目「${activeProject.name}」？（将删除其录音与文本）`)
     if (!ok) return
-    await deleteProject(activeProject.id)
-    setProjects(await listProjects())
-    setActiveProjectId(null)
-    localStorage.removeItem(LS_TRANSCRIPT_PREFIX + activeProject.id)
-    localStorage.removeItem(LS_STORY_PREFIX + activeProject.id)
+    const res = (await deleteProjectApi(activeProject.id)) as any
+    refreshApiLogs()
+    if (!res?.ok) {
+      window.alert(res?.error?.message ?? '删除失败')
+      return
+    }
+    setRecordingBlobs({})
+    await loadProjects()
   }
 
   async function startRecording() {
-    setError('')
-    if (!activeProject) return setError('请先选择或新建一个项目。')
+    setRecordingError('')
+    if (!activeProject) return setRecordingError('请先选择或新建一个项目。')
     if (mediaRecorderRef.current) return
-    setStatus('正在请求麦克风权限…')
+    setRecordingStatus('正在请求麦克风权限…')
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     mediaStreamRef.current = stream
@@ -249,7 +317,7 @@ function App() {
     recorder.ondataavailable = (evt) => {
       if (evt.data && evt.data.size > 0) chunksRef.current.push(evt.data)
     }
-    recorder.onerror = () => setError('录音失败：MediaRecorder error')
+    recorder.onerror = () => setRecordingError('录音失败：MediaRecorder error')
     recorder.start()
     mediaRecorderRef.current = recorder
 
@@ -266,17 +334,17 @@ function App() {
       void stopRecording('max_duration')
     }, MAX_RECORDING_MS)
 
-    setStatus('录音中…')
+    setRecordingStatus('录音中')
   }
 
   async function stopRecording(reason?: 'max_duration') {
-    setError('')
+    setRecordingError('')
     const recorder = mediaRecorderRef.current
     const stream = mediaStreamRef.current
     if (!recorder) return
     clearRecordingTimers()
     recordingStartedAtRef.current = null
-    setStatus(reason === 'max_duration' ? '已到 5 分钟上限，正在保存…' : '正在保存录音片段…')
+    setRecordingStatus(reason === 'max_duration' ? '已到 5 分钟上限，正在保存…' : '正在保存录音片段…')
 
     const blob = await new Promise<Blob>((resolve) => {
       recorder.onstop = () => {
@@ -295,101 +363,128 @@ function App() {
     if (stream) for (const t of stream.getTracks()) t.stop()
     mediaStreamRef.current = null
 
-    const durationMs = await getAudioDurationMs(blob)
-    const t = nowIso()
-    const seg: RecordingSegment = {
-      id: newId('seg'),
-      projectId: activeProjectId!,
-      createdAt: t,
-      durationMs,
-      mimeType: blob.type || 'audio/webm',
-      blob,
+    try {
+      if (!activeProjectId) return
+      const durationMs = await getAudioDurationMs(blob)
+      const mimeType = blob.type || 'audio/webm'
+      const ext = extFromMime(mimeType)
+
+      // Prefer presigned direct upload; fallback to proxy upload when CORS blocks R2 (common in local dev).
+      setRecordingStatus('准备上传到云端…')
+      let recordingId = ''
+      if (shouldUseDirectR2Upload()) {
+        try {
+        const initRes = (await initRecordingUpload({
+          projectId: activeProjectId,
+          mimeType,
+          ext,
+          sizeBytes: blob.size,
+        })) as any
+        refreshApiLogs()
+        if (!initRes?.ok) throw new Error(initRes?.error?.message ?? 'init upload failed')
+
+        setRecordingStatus('上传中…')
+        const putUrl = String(initRes.putUrl)
+        recordingId = String(initRes.recordingId)
+        const put = await fetch(putUrl, { method: 'PUT', headers: { 'content-type': mimeType }, body: blob })
+        if (!put.ok) throw new Error(`upload failed: HTTP ${put.status}`)
+
+        await completeRecording(recordingId, { durationMs, sizeBytes: blob.size })
+        refreshApiLogs()
+        } catch (e: any) {
+        const msg = e?.message ?? String(e)
+        if (!/cors|preflight|access-control-allow-origin|failed to fetch/i.test(msg)) throw e
+        setRecordingStatus('直传被拦截，改用后端中转上传…')
+        const proxyRes = (await uploadRecordingProxy({
+          projectId: activeProjectId,
+          blob,
+          filename: `recording_${Date.now()}.${ext}`,
+        })) as any
+        refreshApiLogs()
+        if (!proxyRes?.ok) throw new Error(proxyRes?.error?.message ?? 'proxy upload failed')
+        recordingId = String(proxyRes.recordingId)
+        await completeRecording(recordingId, { durationMs, sizeBytes: blob.size })
+        refreshApiLogs()
+        }
+      } else {
+        // Proxy upload (server-to-R2) avoids browser CORS issues against R2.
+        setRecordingStatus('涓婁紶涓€?')
+        const proxyRes = (await uploadRecordingProxy({
+          projectId: activeProjectId,
+          blob,
+          filename: `recording_${Date.now()}.${ext}`,
+        })) as any
+        refreshApiLogs()
+        if (!proxyRes?.ok) throw new Error(proxyRes?.error?.message ?? 'proxy upload failed')
+        recordingId = String(proxyRes.recordingId)
+        await completeRecording(recordingId, { durationMs, sizeBytes: blob.size })
+        refreshApiLogs()
+      }
+
+      setRecordingStatus('')
+      await loadRecordings(activeProjectId)
+      if (recordingId) setSelectedRecordingId(recordingId)
+    } catch (e: any) {
+      setRecordingStatus('')
+      setRecordingError(e?.message ?? String(e))
     }
-    await putSegment(seg)
-    await putProject({ ...activeProject!, updatedAt: nowIso() })
-    setProjects(await listProjects())
-    const loaded = await listSegments(activeProjectId!)
-    setSegments(loaded)
-    setSelectedSegmentId(seg.id)
-    setStatus('')
   }
 
-  async function onDeleteSegment(seg: RecordingSegment) {
-    const ok = window.confirm('删除该录音片段？')
-    if (!ok) return
-    await deleteSegment(seg.id)
-    const loaded = await listSegments(activeProjectId!)
-    setSegments(loaded)
-    if (selectedSegmentId === seg.id) setSelectedSegmentId(loaded[0]?.id ?? null)
-  }
-
-  async function runMockTranscription() {
-    setError('')
-    if (!activeProjectId) return
-    if (segments.length === 0) return setError('当前项目没有录音片段。')
-    setStatus('mock 转写中…')
-    const provider = new MockTranscriptionProvider()
-    const result = await provider.transcribe(segments)
-    setTranscriptText(result.mergedText)
-    localStorage.setItem(LS_TRANSCRIPT_PREFIX + activeProjectId, result.mergedText)
-    setStatus('')
-  }
-
-  async function runMockPolish() {
-    setError('')
-    if (!activeProjectId) return
-    const input = transcriptText.trim()
-    if (!input) return setError('请先得到转写文本。')
-    setStatus('mock 整理中…')
-    const provider = new MockStoryPolishProvider()
-    const result = await provider.polish(input, {
-      forbidFabrication: true,
-      forbidChangingFacts: true,
-      allowLightCleanup: true,
-      keepFirstPersonStyle: true,
-    })
-    setStoryText(result.storyText)
-    setStoryRulesSummary(result.rulesSummary)
-    localStorage.setItem(
-      LS_STORY_PREFIX + activeProjectId,
-      JSON.stringify({ text: result.storyText, rulesSummary: result.rulesSummary }),
-    )
-    setStatus('')
+  async function ensureRecordingBlob(recordingId: string) {
+    if (recordingBlobs[recordingId]) return recordingBlobs[recordingId]
+    const res = (await getRecordingBlob(recordingId)) as any
+    refreshApiLogs()
+    if (!res?.ok) throw new Error(res?.error?.message ?? 'failed to fetch recording blob')
+    const blob = res.blob as Blob
+    setRecordingBlobs((prev) => ({ ...prev, [recordingId]: blob }))
+    return blob
   }
 
   async function runApiTranscription() {
-    setError('')
-    if (!activeProjectId) return
-    if (!selectedSegmentId) return setError('请先选择一个片段用于转写。')
-    const seg = segments.find((s) => s.id === selectedSegmentId)
-    if (!seg) return setError('所选片段不存在。')
+    setSttError('')
+    if (!activeProjectId) return setSttError('请先选择项目。')
+    if (recordings.length === 0) return setSttError('当前项目还没有录音。')
 
-    setStatus('STT 转写中…')
-    const res = await sttTranscribe({
-      audio: seg.blob,
-      filename: `segment_${seg.id}.webm`,
-      provider: sttProvider,
-      model: sttModel,
-      language: 'zh',
-    })
-    refreshApiLogs()
-    if (!res?.ok) {
-      setStatus('')
-      setError(`${res?.error?.code ?? 'ERROR'}: ${res?.error?.message ?? '请求失败'}`)
-      return
+    setSttStatus('转写中')
+    try {
+      const parts: string[] = []
+      for (let i = 0; i < recordings.length; i++) {
+        const r = recordings[i]
+        setSttStatus(`转写中（${i + 1}/${recordings.length}）`)
+        const blob = await ensureRecordingBlob(r.id)
+
+        const res = await sttTranscribe({
+          audio: blob,
+          filename: `recording_${r.id}.${extFromMime(blob.type || r.mimeType || 'audio/webm')}`,
+          provider: sttProvider,
+          model: sttModel,
+          language: 'zh',
+        })
+        refreshApiLogs()
+        if (!res?.ok) throw new Error(`${res?.error?.code ?? 'ERROR'}: ${res?.error?.message ?? '请求失败'}`)
+        const text = String(res.text ?? '').trim()
+        if (text) parts.push(text)
+      }
+
+      const merged = parts.join('\n\n')
+      setTranscriptText(merged)
+      localStorage.setItem(LS_TRANSCRIPT_PREFIX + activeProjectId, merged)
+      await saveProjectDraft(activeProjectId, merged)
+      refreshApiLogs()
+      setSttStatus('')
+    } catch (e: any) {
+      setSttStatus('')
+      setSttError(e?.message ?? String(e))
     }
-    setTranscriptText((res.text ?? '') as string)
-    localStorage.setItem(LS_TRANSCRIPT_PREFIX + activeProjectId, (res.text ?? '') as string)
-    setStatus('')
   }
 
   async function runApiRefine() {
-    setError('')
+    setRewriteError('')
     if (!activeProjectId) return
     const input = transcriptText.trim()
-    if (!input) return setError('请先得到转写文本。')
+    if (!input) return setRewriteError('请先得到转写文本。')
 
-    setStatus('文本整理中…')
+    setRewriteStatus('改写中')
     const res = await textRefine({
       text: input,
       mode: refineMode,
@@ -398,342 +493,282 @@ function App() {
     })
     refreshApiLogs()
     if (!res?.ok) {
-      setStatus('')
-      setError(`${res?.error?.code ?? 'ERROR'}: ${res?.error?.message ?? '请求失败'}`)
+      setRewriteStatus('')
+      setRewriteError(`${res?.error?.code ?? 'ERROR'}: ${res?.error?.message ?? '请求失败'}`)
       return
     }
     const out = ((res.result ?? '') as string).trim()
     setStoryText(out)
     setStoryRulesSummary(`mode=${refineMode} provider=${textProvider} model=${textModel}`)
-    localStorage.setItem(
-      LS_STORY_PREFIX + activeProjectId,
-      JSON.stringify({ text: out, rulesSummary: `mode=${refineMode}` }),
-    )
-    setStatus('')
+    localStorage.setItem(LS_STORY_PREFIX + activeProjectId, JSON.stringify({ text: out, rulesSummary: `mode=${refineMode}` }))
+    await saveProjectFinal(activeProjectId, out)
+    refreshApiLogs()
+    setRewriteStatus('')
   }
 
-  async function exportMarkdown() {
-    setError('')
-    if (!activeProject) return
-    const text = storyText.trim()
-    if (!text) return setError('没有可导出的文本。')
-    const ts = new Date().toISOString().replace(/[:.]/g, '-')
-    const title = safeFileName(activeProject.name || 'verstory')
-    const md = `# ${activeProject.name}\n\n- ExportedAt: ${new Date().toLocaleString()}\n\n---\n\n${text}\n`
-    downloadText(`${title}_${ts}.md`, md)
-  }
-
-  async function copyMarkdown() {
-    setError('')
-    if (!activeProject) return
-    const text = storyText.trim()
-    if (!text) return setError('没有可复制的文本。')
-    const md = `# ${activeProject.name}\n\n${text}\n`
-    try {
-      await navigator.clipboard.writeText(md)
-      setStatus('已复制 Markdown 到剪贴板。')
-      setTimeout(() => setStatus(''), 1800)
-    } catch {
-      setError('复制失败：浏览器未授权剪贴板权限。')
+  async function onRollbackFinal() {
+    if (!activeProjectId) return
+    const ok = window.confirm('撤销：恢复到上一版故事？')
+    if (!ok) return
+    const res = (await rollbackProjectFinal(activeProjectId)) as any
+    refreshApiLogs()
+    if (!res?.ok) {
+      window.alert(res?.error?.message ?? '撤销失败')
+      return
     }
+    await loadProjectTexts(activeProjectId)
+  }
+
+  const buildId = (import.meta as any)?.env?.VITE_BUILD_ID as string | undefined
+
+  if (!authed) {
+    return (
+      <div className="app">
+        <header className="topbar">
+          <div>
+            <div className="title">Verstory</div>
+            <div className="subtitle">登录后开始录音与整理</div>
+            {buildId ? <div className="subtitle">build={buildId}</div> : null}
+          </div>
+        </header>
+
+        <div className="layoutAuth">
+          <div className="panel">
+            <div className="panelHeader">
+              <div className="panelTitle">登录</div>
+            </div>
+            <div className="muted">仅允许预置用户登录。</div>
+            <div className="field">
+              <div className="label">邮箱</div>
+              <input className="input" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} />
+            </div>
+            <div className="field">
+              <div className="label">密码</div>
+              <input className="input" type="password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} />
+            </div>
+            {authError ? <div className="errorText">{authError}</div> : null}
+            <div className="actions">
+              <button className="btn" type="button" onClick={() => void onLogin()} disabled={!authEmail || !authPassword}>
+                登录
+              </button>
+              <button className="btn" type="button" onClick={() => (clearApiLogs(), refreshApiLogs())}>
+                清空 API 日志
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="app">
       <header className="topbar">
         <div>
-          <div className="title">Verstory（Phase 4）</div>
-          <div className="subtitle">录音 → STT → 文本整理（支持 API + mock）</div>
-          {status ? <div className="subtitle">{status}</div> : null}
-          {error ? (
-            <div className="subtitle" style={{ color: '#ff7b7b' }}>
-              {error}
-            </div>
-          ) : null}
+          <div className="title">Verstory</div>
+          <div className="subtitle">录音 → 转写 → 改写（云端存储）</div>
+          {buildId ? <div className="subtitle">build={buildId}</div> : null}
         </div>
         <div className="actions">
           <button className="btn" type="button" onClick={() => void createProject()}>
             新建项目
           </button>
-          <button className="btn" type="button" disabled={!activeProject} onClick={() => void onDeleteActiveProject()}>
-            删除当前项目
+          <button className="btn" type="button" onClick={() => void onDeleteActiveProject()} disabled={!activeProject}>
+            删除项目
+          </button>
+          <button className="btn" type="button" onClick={() => void onLogout()}>
+            退出登录
           </button>
         </div>
       </header>
 
-      <main className="layout">
-        <section className="panel">
-          <div className="panelTitle">项目</div>
-          {projects.length === 0 ? (
-            <div className="muted">暂无项目，点击右上角“新建项目”。</div>
-          ) : (
-            <ul className="projectList">
-              {projects.map((p) => (
-                <li key={p.id}>
-                  <button
-                    type="button"
-                    className={p.id === activeProjectId ? 'projectItem active' : 'projectItem'}
-                    onClick={() => setActiveProjectId(p.id)}
-                  >
-                    <div className="projectName">{p.name}</div>
-                    <div className="projectMeta">{new Date(p.updatedAt).toLocaleString()}</div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+      <div className="layout">
+        <div className="panel sidebar">
+          <div className="panelHeader">
+            <div className="panelTitle">项目</div>
+          </div>
+          <ul className="projectList">
+            {projects.map((p) => (
+              <li key={p.id}>
+                <button
+                  className={'projectItem' + (p.id === activeProjectId ? ' active' : '')}
+                  type="button"
+                  onClick={() => setActiveProjectId(p.id)}
+                >
+                  <div className="projectName">{p.name}</div>
+                  <div className="projectMeta">{p.updatedAt ? new Date(p.updatedAt).toLocaleString() : ''}</div>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {projects.length === 0 ? <div className="placeholder">还没有项目，点右上角新建。</div> : null}
+        </div>
 
-        <section className="panel">
-          <div className="panelTitle">录音片段</div>
-          {activeProject ? (
-            <div className="muted">
-              当前项目：<b>{activeProject.name}</b>（片段数：{segments.length}）
+        <div className="main">
+          <div className="panel">
+            <div className="panelHeader">
+              <div className="panelTitle">录音</div>
+              {recordingStatus ? <div className="badge running">录音中</div> : null}
             </div>
-          ) : (
-            <div className="muted">请先选择或新建一个项目。</div>
-          )}
+            <div className="muted">录音会上传到云端（R2），可跨设备继续。</div>
+            <div className="actions">
+              <button className="btn" type="button" onClick={() => void startRecording()} disabled={!activeProject || isRecording}>
+                开始录音
+              </button>
+              <button className="btn" type="button" onClick={() => void stopRecording()} disabled={!isRecording}>
+                停止录音
+              </button>
+              {isRecording ? <div className="muted">已录：{formatDurationMs(recordingElapsedMs)}</div> : null}
+            </div>
+            {recordingStatus ? <div className="placeholder">{recordingStatus}</div> : null}
+            {recordingError ? <div className="errorText">{recordingError}</div> : null}
 
-          <div className="actions">
-            <button className="btn" type="button" disabled={!activeProject || isRecording} onClick={() => void startRecording()}>
-              开始录音
-            </button>
-            <button className="btn" type="button" disabled={!activeProject || !isRecording} onClick={() => void stopRecording()}>
-              停止并保存
-            </button>
-            <div className="muted" style={{ margin: 0 }}>
-              {isRecording ? `录音时长：${formatDurationMs(recordingElapsedMs)} / 5:00` : '最长录音 5 分钟'}
+            <div className="sectionTitle">录音列表</div>
+            <div className="actions">
+              <select
+                className="input"
+                value={selectedRecordingId ?? ''}
+                onChange={(e) => setSelectedRecordingId(e.target.value || null)}
+                disabled={recordings.length === 0}
+              >
+                {recordings.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {new Date(r.createdAt).toLocaleString()} {r.durationMs ? `(${formatDurationMs(r.durationMs)})` : ''}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="btn"
+                type="button"
+                onClick={() => selectedRecordingId && void ensureRecordingBlob(selectedRecordingId)}
+                disabled={!selectedRecordingId}
+              >
+                加载并播放
+              </button>
             </div>
+            {selectedRecordingId && recordingBlobs[selectedRecordingId] ? (
+              <AudioPlayer source={recordingBlobs[selectedRecordingId]} />
+            ) : (
+              <div className="placeholder">选择一个录音后获取播放链接。</div>
+            )}
           </div>
 
-          {segments.length === 0 ? (
-            <div className="placeholder">暂无录音片段。</div>
-          ) : (
-            <div className="placeholder">
-              {segments.map((seg) => (
-                <div key={seg.id} style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10 }}>
-                  <AudioPlayer blob={seg.blob} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: 12 }}>
-                      {formatDurationMs(seg.durationMs)} · {new Date(seg.createdAt).toLocaleString()}
-                    </div>
-                    <div style={{ color: 'rgba(230,231,234,0.7)', fontSize: 11 }}>{seg.mimeType}</div>
-                    <div style={{ marginTop: 6 }}>
-                      <button className="btn" type="button" onClick={() => setSelectedSegmentId(seg.id)}>
-                        {selectedSegmentId === seg.id ? '已选用于转写' : '选择用于转写'}
-                      </button>
-                    </div>
-                  </div>
-                  <button className="btn" type="button" onClick={() => void onDeleteSegment(seg)}>
-                    删除
-                  </button>
+          <div className="panelTabs">
+            <button className={'tab' + (activeTab === 'stt' ? ' active' : '')} onClick={() => setActiveTab('stt')} type="button">
+              转写
+            </button>
+            <button
+              className={'tab' + (activeTab === 'rewrite' ? ' active' : '')}
+              onClick={() => setActiveTab('rewrite')}
+              type="button"
+            >
+              改写
+            </button>
+          </div>
+
+          <div className={'panel ' + (activeTab === 'stt' ? '' : 'hideOnMobile')}>
+            <div className="panelHeader">
+              <div className="panelTitle">转写</div>
+              {sttStatus ? (
+                <div className="badge running">
+                  转写中 <span className="spinner" />
                 </div>
-              ))}
+              ) : null}
             </div>
-          )}
-        </section>
-
-        <section className="panel">
-          <div className="panelTitle">转写 & 整理</div>
-          {activeProject ? (
-            <div className="muted">无 API Key 时，API 会返回清晰错误码（例如 MISSING_API_KEY）。</div>
-          ) : (
-            <div className="muted">请先选择或新建一个项目。</div>
-          )}
-
-          <div className="placeholder">
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-              <div style={{ fontWeight: 700, fontSize: 12 }}>STT</div>
-              <select value={sttProvider} onChange={(e) => setSttProvider(e.target.value)}>
-                {(models?.providers ?? [])
-                  .filter((p) => p.models.stt && p.models.stt.length > 0)
+            <div className="actions">
+              <button className="btn" type="button" onClick={() => void runApiTranscription()} disabled={!selectedRecording}>
+                开始转写
+              </button>
+              <select className="input" value={sttProvider} onChange={(e) => setSttProvider(e.target.value)}>
+                {models?.providers
+                  ?.filter((p) => p.enabled)
                   .map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.id}
                     </option>
                   ))}
               </select>
-              <select value={sttModel} onChange={(e) => setSttModel(e.target.value)}>
-                {(models?.providers ?? [])
-                  .find((p) => p.id === sttProvider)
-                  ?.models.stt?.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  )) ?? null}
-              </select>
-              <button className="btn" type="button" disabled={!activeProject || !selectedSegmentId} onClick={() => void runApiTranscription()}>
-                转写（API）
-              </button>
-              <button className="btn" type="button" disabled={!activeProject} onClick={() => void runMockTranscription()}>
-                转写（mock）
-              </button>
+              <input className="input" value={sttModel} onChange={(e) => setSttModel(e.target.value)} placeholder="stt model" />
             </div>
+            {sttError ? <div className="errorText">{sttError}</div> : null}
+            <textarea className="textArea" value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
           </div>
 
-          <div className="placeholder">
-            <div className="muted" style={{ marginBottom: 8 }}>
-              转写文本（可手动修改）
+          <div className={'panel ' + (activeTab === 'rewrite' ? '' : 'hideOnMobile')}>
+            <div className="panelHeader">
+              <div className="panelTitle">改写</div>
+              {rewriteStatus ? (
+                <div className="badge running">
+                  改写中 <span className="spinner" />
+                </div>
+              ) : null}
             </div>
-            <textarea
-              className="textArea"
-              value={transcriptText}
-              onChange={(e) => {
-                const v = e.target.value
-                setTranscriptText(v)
-                if (activeProjectId) localStorage.setItem(LS_TRANSCRIPT_PREFIX + activeProjectId, v)
-              }}
-              placeholder="[转写文本会显示在这里]"
-            />
-          </div>
-
-          <div className="placeholder">
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-              <div style={{ fontWeight: 700, fontSize: 12 }}>Text</div>
-              <select value={textProvider} onChange={(e) => setTextProvider(e.target.value)}>
-                {(models?.providers ?? [])
-                  .filter((p) => p.models.text && p.models.text.length > 0)
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.id}
-                    </option>
-                  ))}
-              </select>
-              <select value={textModel} onChange={(e) => setTextModel(e.target.value)}>
-                {(models?.providers ?? [])
-                  .find((p) => p.id === textProvider)
-                  ?.models.text?.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  )) ?? null}
-              </select>
-              <select value={refineMode} onChange={(e) => setRefineMode(e.target.value as any)}>
+            <div className="actions">
+              <button className="btn" type="button" onClick={() => void runApiRefine()} disabled={!transcriptText.trim()}>
+                开始改写
+              </button>
+              <button className="btn" type="button" onClick={() => void onRollbackFinal()} disabled={!storyText.trim()}>
+                撤销到上一版
+              </button>
+              <select className="input" value={refineMode} onChange={(e) => setRefineMode(e.target.value as any)}>
                 <option value="clean">clean</option>
                 <option value="organize">organize</option>
                 <option value="memoir">memoir</option>
                 <option value="goal">goal</option>
               </select>
-              <button className="btn" type="button" disabled={!activeProject || !transcriptText.trim()} onClick={() => void runApiRefine()}>
-                整理（API）
-              </button>
-              <button className="btn" type="button" disabled={!activeProject || !transcriptText.trim()} onClick={() => void runMockPolish()}>
-                整理（mock）
-              </button>
+              <select className="input" value={textProvider} onChange={(e) => setTextProvider(e.target.value)}>
+                {models?.providers
+                  ?.filter((p) => p.enabled)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.id}
+                    </option>
+                  ))}
+              </select>
+              <input className="input" value={textModel} onChange={(e) => setTextModel(e.target.value)} placeholder="text model" />
             </div>
+            {rewriteError ? <div className="errorText">{rewriteError}</div> : null}
+            {storyRulesSummary ? <div className="muted">{storyRulesSummary}</div> : null}
+            <textarea className="textArea" value={storyText} onChange={(e) => setStoryText(e.target.value)} />
           </div>
 
-          <div className="placeholder">
-            <div className="muted" style={{ marginBottom: 8 }}>
-              整理结果（可手动修改）{storyRulesSummary ? `（${storyRulesSummary}）` : ''}
+          <div className="panel">
+            <div className="panelHeader">
+              <div className="panelTitle">API 日志</div>
             </div>
-            <textarea
-              className="textArea"
-              style={{ minHeight: 320 }}
-              value={storyText}
-              onChange={(e) => {
-                const v = e.target.value
-                setStoryText(v)
-                if (activeProjectId) {
-                  localStorage.setItem(
-                    LS_STORY_PREFIX + activeProjectId,
-                    JSON.stringify({ text: v, rulesSummary: storyRulesSummary }),
-                  )
-                }
-              }}
-              placeholder="[整理结果会显示在这里]"
-            />
-          </div>
-
-          <div className="placeholder">
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div style={{ fontWeight: 700, fontSize: 12 }}>API 调用记录</div>
-              <button
-                className="btn"
-                type="button"
-                onClick={() => {
-                  refreshApiLogs()
-                  setStatus('已刷新 API 日志')
-                  setTimeout(() => setStatus(''), 1200)
-                }}
-              >
-                刷新
-              </button>
-              <button
-                className="btn"
-                type="button"
-                onClick={() => {
-                  clearApiLogs()
-                  refreshApiLogs()
-                  setStatus('已清空 API 日志')
-                  setTimeout(() => setStatus(''), 1200)
-                }}
-              >
+            <div className="actions">
+              <button className="btn" type="button" onClick={() => (clearApiLogs(), refreshApiLogs())}>
                 清空
               </button>
-              <button
-                className="btn"
-                type="button"
-                disabled={apiLogs.length === 0}
-                onClick={() => {
-                  const ts = new Date().toISOString().replace(/[:.]/g, '-')
-                  downloadText(`verstory_api_logs_${ts}.json`, JSON.stringify(apiLogs, null, 2))
-                }}
-              >
-                导出 JSON
+              <button className="btn" type="button" onClick={() => void loadProjects()}>
+                刷新项目
               </button>
-              <div className="muted" style={{ margin: 0 }}>
-                最近 {apiLogs.length} 条（最多保存 200）
-              </div>
+              {activeProjectId ? (
+                <button className="btn" type="button" onClick={() => void loadRecordings(activeProjectId)}>
+                  刷新录音
+                </button>
+              ) : null}
             </div>
-
-            <div style={{ marginTop: 10, maxHeight: 180, overflow: 'auto' }}>
-              {apiLogs.length === 0 ? (
-                <div className="muted">暂无记录。执行“转写(API)”或“整理(API)”后会自动写入。</div>
-              ) : (
-                <div style={{ display: 'grid', gap: 8 }}>
-                  {apiLogs.slice(0, 40).map((l) => (
-                    <div
-                      key={l.id}
-                      style={{
-                        border: '1px solid rgba(255,255,255,0.12)',
-                        borderRadius: 10,
-                        padding: '8px 10px',
-                        background: l.ok ? 'rgba(0,0,0,0.12)' : 'rgba(255, 82, 82, 0.08)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                        <div style={{ fontWeight: 700, fontSize: 12 }}>
-                          {l.method} {l.status ?? '-'} {l.ok ? 'OK' : 'ERR'}
-                        </div>
-                        <div style={{ fontSize: 11, color: 'rgba(230,231,234,0.7)' }}>
-                          {new Date(l.ts).toLocaleString()} · {Math.round((l.durationMs ?? 0) / 10) / 100}s
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 12, color: 'rgba(230,231,234,0.75)', marginTop: 4 }}>
-                        {l.errorCode ? `${l.errorCode}: ${l.errorMessage ?? ''}` : l.url}
-                      </div>
-                    </div>
-                  ))}
+            <div className="apiLog">
+              {apiLogs.slice().reverse().map((l) => (
+                <div key={l.ts} className="apiLogItem">
+                  <div className="apiLogTop">
+                    <span className="apiLogMethod">{l.method}</span>
+                    <span className="apiLogUrl">{l.url}</span>
+                  </div>
+                  <div className="apiLogMeta">
+                    <span>status={l.status}</span>
+                    <span>ok={String(l.ok)}</span>
+                    <span>{l.durationMs}ms</span>
+                    {l.errorCode ? <span>{l.errorCode}</span> : null}
+                    {l.errorMessage ? <span className="apiLogErr">{l.errorMessage}</span> : null}
+                  </div>
                 </div>
-              )}
+              ))}
             </div>
           </div>
-
-          <div className="actions">
-            <button className="btn" type="button" disabled={!activeProject || !storyText.trim()} onClick={() => void exportMarkdown()}>
-              导出 Markdown
-            </button>
-            <button className="btn" type="button" disabled={!activeProject || !storyText.trim()} onClick={() => void copyMarkdown()}>
-              复制 Markdown
-            </button>
-          </div>
-        </section>
-      </main>
-
-      <footer className="muted" style={{ marginTop: 14, textAlign: 'center' }}>
-        {buildId ? `build: ${buildId.slice(0, 7)}` : null}
-      </footer>
+        </div>
+      </div>
     </div>
   )
 }

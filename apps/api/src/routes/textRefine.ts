@@ -12,7 +12,7 @@ type RefineBody = {
 }
 
 export async function registerTextRefineRoutes(app: FastifyInstance) {
-  app.post('/api/text/refine', async (req, reply) => {
+  app.post('/api/text/refine', { preHandler: [(app as any).requireAuth] }, async (req, reply) => {
     const body = (req.body ?? {}) as RefineBody
     const registry = getModelRegistry()
 

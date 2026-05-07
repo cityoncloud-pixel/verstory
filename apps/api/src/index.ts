@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { buildServer } from './server.js'
 
 const PORT = Number.parseInt(process.env.PORT ?? '8080', 10)
