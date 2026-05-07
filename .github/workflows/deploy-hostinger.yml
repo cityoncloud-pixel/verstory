@@ -28,12 +28,13 @@ jobs:
 
       - name: Install
         working-directory: apps/web
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Build
         working-directory: apps/web
         env:
           VITE_BUILD_ID: ${{ github.sha }}
+          VITE_API_BASE: https://story-api.suenbeya.com
         run: npm run build
 
       - name: Write build marker
@@ -50,6 +51,7 @@ jobs:
           port: ${{ secrets.HOSTINGER_FTP_PORT }}
           protocol: ftps
           local-dir: apps/web/dist/
-          # This FTP user is scoped to the story subdirectory already; deploy to root to avoid path nesting.
-          server-dir: /
+          # IMPORTANT: set HOSTINGER_FTP_SERVER_DIR to the actual site directory.
+          # For your current Hostinger layout (File Manager shows public_html/story), this is usually: /story/
+          server-dir: ${{ secrets.HOSTINGER_FTP_SERVER_DIR }}
           dangerous-clean-slate: true
