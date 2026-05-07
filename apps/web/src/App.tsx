@@ -30,6 +30,11 @@ const LS_TRANSCRIPT_PREFIX = 'verstory.transcript.v2.'
 const LS_STORY_PREFIX = 'verstory.story.v2.'
 const MAX_RECORDING_MS = 5 * 60 * 1000
 
+function shouldUseDirectR2Upload() {
+  const v = (import.meta as any).env?.VITE_R2_DIRECT_UPLOAD
+  return String(v ?? '').toLowerCase() === 'true'
+}
+
 type CloudProject = {
   id: string
   name: string
@@ -367,7 +372,8 @@ function App() {
       // Prefer presigned direct upload; fallback to proxy upload when CORS blocks R2 (common in local dev).
       setRecordingStatus('准备上传到云端…')
       let recordingId = ''
-      try {
+      if (shouldUseDirectR2Upload()) {
+        try {
         const initRes = (await initRecordingUpload({
           projectId: activeProjectId,
           mimeType,
@@ -385,10 +391,24 @@ function App() {
 
         await completeRecording(recordingId, { durationMs, sizeBytes: blob.size })
         refreshApiLogs()
-      } catch (e: any) {
+        } catch (e: any) {
         const msg = e?.message ?? String(e)
         if (!/cors|preflight|access-control-allow-origin|failed to fetch/i.test(msg)) throw e
         setRecordingStatus('直传被拦截，改用后端中转上传…')
+        const proxyRes = (await uploadRecordingProxy({
+          projectId: activeProjectId,
+          blob,
+          filename: `recording_${Date.now()}.${ext}`,
+        })) as any
+        refreshApiLogs()
+        if (!proxyRes?.ok) throw new Error(proxyRes?.error?.message ?? 'proxy upload failed')
+        recordingId = String(proxyRes.recordingId)
+        await completeRecording(recordingId, { durationMs, sizeBytes: blob.size })
+        refreshApiLogs()
+        }
+      } else {
+        // Proxy upload (server-to-R2) avoids browser CORS issues against R2.
+        setRecordingStatus('涓婁紶涓€?')
         const proxyRes = (await uploadRecordingProxy({
           projectId: activeProjectId,
           blob,
