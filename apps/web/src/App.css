@@ -28,18 +28,17 @@
   min-width: 0;
 }
 
+.topbarAppName {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  color: rgba(230, 231, 234, 0.92);
+  line-height: 1.1;
+}
+
 .topbarTitle {
   font-size: 14px;
   font-weight: 800;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.topbarSubtitle {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

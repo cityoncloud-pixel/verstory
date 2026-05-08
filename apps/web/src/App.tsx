@@ -259,6 +259,7 @@ function App() {
 
   useEffect(() => {
     let cancelled = false
+    if (!authed) return
     if (!activeProjectId) {
       setRecordings([])
       setSelectedRecordingIds({})
@@ -266,6 +267,7 @@ function App() {
     }
     ;(async () => {
       try {
+        setRecordingError('')
         await loadRecordings(activeProjectId)
         await loadProjectTexts(activeProjectId)
       } catch (e: any) {
@@ -276,7 +278,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [activeProjectId])
+  }, [activeProjectId, authed])
 
   useEffect(() => {
     if (!activeProjectId) {

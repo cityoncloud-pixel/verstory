@@ -48,8 +48,8 @@ export function TopBar({ projects, activeProjectId, onChangeProject, onOpenMenu 
         </div>
 
         <div className="topbarCenter" aria-label="当前项目">
+          <div className="topbarAppName">Verstory</div>
           <div className="topbarTitle">{active ? active.name : '未选择项目'}</div>
-          <div className="topbarSubtitle">录音 → 转写 → 整理</div>
         </div>
 
         <div className="topbarRight">
