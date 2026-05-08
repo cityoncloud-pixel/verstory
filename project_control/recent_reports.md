@@ -46,3 +46,8 @@
 - 后端新增：`/api/models`、`/api/config/check`、`/api/stt/transcribe`、`/api/text/refine`
 - 前端新增：模型下拉、片段选择转写、文本整理（API + mock）
 - Runbook：`deploy/phase4_runbook.md`
+
+## 2026-05-08 — Workspace Layout Spec v2（移动端骨架修复）
+- 结果：build PASS（`npm --prefix apps/web run build`）
+- 修复：移除移动端首屏浪费的旧布局块；将危险操作收纳进顶部菜单；底部固定流程 Tab，切换=内容切换
+- 关联：`verstory_workspace_layout_spec_v2.md`、`reports/mvp-0006.report.md`

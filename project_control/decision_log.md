@@ -1,5 +1,10 @@
 # decision_log.md
 
+## 2026-05-08 — Adopt workspace layout spec v2 on mobile
+- Problem: mobile first-screen wasted by legacy “sidebar/project block” + topbar action stack; unsafe actions too exposed.
+- Decision: align UI structure to `verstory_workspace_layout_spec_v2.md` (TopBar sticky + BottomWorkflowTabs fixed + single content area), remove build display and legacy navigation blocks.
+- Scope: frontend layout + navigation only; no backend/auth/storage behavior changes.
+
 （AI 追加：关键决策与原因、路由变化、回滚原因、架构变化）
 
 ## 2026-05-04 — Phase 2 启动与路由

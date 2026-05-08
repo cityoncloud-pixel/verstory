@@ -3,6 +3,8 @@ import './App.css'
 
 import { AudioPlayer } from './AudioPlayer'
 import { RecordingWaveform } from './RecordingWaveform'
+import { BottomWorkflowTabs, type WorkflowTab } from './components/BottomWorkflowTabs'
+import { TopBar } from './components/TopBar'
 import {
   bulkDeleteRecordings,
   completeRecording,
@@ -134,7 +136,8 @@ function App() {
   const [storyText, setStoryText] = useState<string>('')
   const [storyRulesSummary, setStoryRulesSummary] = useState<string>('')
 
-  const [activeTab, setActiveTab] = useState<'record' | 'stt' | 'draft'>('record')
+  const [activeTab, setActiveTab] = useState<WorkflowTab>('record')
+  const [showProjectMenu, setShowProjectMenu] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
   const [manageRecordings, setManageRecordings] = useState(false)
@@ -729,20 +732,21 @@ function App() {
     await loadProjectTexts(activeProjectId)
   }
 
-  const buildId = (import.meta as any)?.env?.VITE_BUILD_ID as string | undefined
-
   if (!authed) {
     return (
-      <div className="app">
+      <div className="appShell">
         <header className="topbar">
-          <div>
-            <div className="title">Verstory</div>
-            <div className="subtitle">登录后开始录音与整理</div>
-            {buildId ? <div className="subtitle">build={buildId}</div> : null}
+          <div className="topbarInner">
+            <div />
+            <div className="topbarCenter">
+              <div className="topbarTitle">Verstory</div>
+              <div className="topbarSubtitle">登录后开始录音与整理</div>
+            </div>
+            <div />
           </div>
         </header>
 
-        <div className="layoutAuth">
+        <main className="workspaceScroll">
           <div className="panel">
             <div className="panelHeader">
               <div className="panelTitle">登录</div>
@@ -766,62 +770,54 @@ function App() {
               </button>
             </div>
           </div>
-        </div>
+        </main>
       </div>
     )
   }
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <div>
-          <div className="title">Verstory</div>
-          <div className="subtitle">录音 → 转写 → 整理（云端存储）</div>
-          {buildId ? <div className="subtitle">build={buildId}</div> : null}
-        </div>
-        <div className="actions">
-          <button className="btn" type="button" onClick={() => setShowSettings(true)}>
-            设置
-          </button>
-          <button className="btn" type="button" onClick={() => void createProject()}>
-            新建项目
-          </button>
-          <button className="btn" type="button" onClick={() => void renameActiveProject()} disabled={!activeProject}>
-            修改名称
-          </button>
-          <button className="btn" type="button" onClick={() => void onDeleteActiveProject()} disabled={!activeProject}>
-            删除项目
-          </button>
-          <button className="btn" type="button" onClick={() => void onLogout()}>
-            退出登录
-          </button>
-        </div>
-      </header>
+    <div className="appShell">
+      <TopBar
+        projects={projects}
+        activeProjectId={activeProjectId}
+        onChangeProject={(projectId) => setActiveProjectId(projectId)}
+        onOpenMenu={() => setShowProjectMenu(true)}
+      />
 
-      <div className="layout">
-        <div className="panel sidebar">
-          <div className="panelHeader">
-            <div className="panelTitle">项目</div>
-          </div>
-          <ul className="projectList">
-            {projects.map((p) => (
-              <li key={p.id}>
-                <button
-                  className={'projectItem' + (p.id === activeProjectId ? ' active' : '')}
-                  type="button"
-                  onClick={() => setActiveProjectId(p.id)}
-                >
-                  <div className="projectName">{p.name}</div>
-                  <div className="projectMeta">{p.updatedAt ? new Date(p.updatedAt).toLocaleString() : ''}</div>
+      <main className="workspaceScroll">
+        {showProjectMenu ? (
+          <div className="modalOverlay" role="dialog" aria-modal="true">
+            <div className="modal">
+              <div className="panelHeader">
+                <div className="panelTitle">项目菜单</div>
+                <button className="btn" type="button" onClick={() => setShowProjectMenu(false)}>
+                  关闭
                 </button>
-              </li>
-            ))}
-          </ul>
-          {projects.length === 0 ? <div className="placeholder">还没有项目，点右上角新建。</div> : null}
-        </div>
+              </div>
+              <div className="muted">切换项目请使用顶部左侧下拉框。</div>
+              <div className="actions">
+                <button className="btn" type="button" onClick={() => (setShowProjectMenu(false), setShowSettings(true))}>
+                  设置
+                </button>
+                <button className="btn" type="button" onClick={() => (setShowProjectMenu(false), void createProject())}>
+                  新建项目
+                </button>
+                <button className="btn" type="button" onClick={() => (setShowProjectMenu(false), void renameActiveProject())} disabled={!activeProject}>
+                  修改项目名
+                </button>
+                <button className="btn danger" type="button" onClick={() => (setShowProjectMenu(false), void onDeleteActiveProject())} disabled={!activeProject}>
+                  删除项目
+                </button>
+                <button className="btn" type="button" onClick={() => (setShowProjectMenu(false), void onLogout())}>
+                  退出登录
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
-        <div className="main">
-          <div className={'panel ' + (activeTab === 'record' ? '' : 'hideOnMobile')}>
+        {activeTab === 'record' ? (
+          <div className="panel">
             <div className="panelHeader">
               <div className="panelTitle">录音</div>
               {recordingStatus ? <div className="badge running">录音中</div> : null}
@@ -1014,24 +1010,10 @@ function App() {
               </div>
             )}
           </div>
+        ) : null}
 
-          <div className="panelTabs">
-            <button
-              className={'tab' + (activeTab === 'record' ? ' active' : '')}
-              onClick={() => setActiveTab('record')}
-              type="button"
-            >
-              录音
-            </button>
-            <button className={'tab' + (activeTab === 'stt' ? ' active' : '')} onClick={() => setActiveTab('stt')} type="button">
-              转写
-            </button>
-            <button className={'tab' + (activeTab === 'draft' ? ' active' : '')} onClick={() => setActiveTab('draft')} type="button">
-              整理稿
-            </button>
-          </div>
-
-          <div className={'panel ' + (activeTab === 'stt' ? '' : 'hideOnMobile')}>
+        {activeTab === 'stt' ? (
+          <div className="panel">
             <div className="panelHeader">
               <div className="panelTitle">转写</div>
               {sttStatus ? (
@@ -1101,8 +1083,10 @@ function App() {
             {sttError ? <div className="errorText">{sttError}</div> : null}
             <textarea className="textArea" value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
           </div>
+        ) : null}
 
-          <div className={'panel ' + (activeTab === 'draft' ? '' : 'hideOnMobile')}>
+        {activeTab === 'draft' ? (
+          <div className="panel">
             <div className="panelHeader">
               <div className="panelTitle">整理稿</div>
               {rewriteStatus ? (
@@ -1187,8 +1171,9 @@ function App() {
               </div>
             ) : null}
           </div>
+        ) : null}
 
-          {showSettings ? (
+        {showSettings ? (
             <div className="modalOverlay" role="dialog" aria-modal="true">
               <div className="modal">
                 <div className="panelHeader">
@@ -1287,8 +1272,9 @@ function App() {
               </div>
             </div>
           ) : null}
-        </div>
-      </div>
+      </main>
+
+      <BottomWorkflowTabs activeTab={activeTab} onChangeTab={setActiveTab} />
     </div>
   )
 }
