@@ -1187,6 +1187,9 @@ function App() {
                   <button className="btn" type="button" onClick={() => clearLocalProjectCache()}>
                     清理本地缓存
                   </button>
+                  <button className="btn" type="button" onClick={() => void renameActiveProject()} disabled={!activeProject}>
+                    修改当前项目名称
+                  </button>
                   <button className="btn" type="button" onClick={() => void loadProjects()}>
                     刷新项目
                   </button>
