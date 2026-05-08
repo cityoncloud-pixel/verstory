@@ -2,7 +2,7 @@ name: Deploy story.suenbeya.com (Hostinger FTP)
 
 on:
   push:
-    branches: [main]
+    branches: [deploy/production]
     paths:
       - "apps/web/**"
       - ".github/workflows/deploy-hostinger.yml"
