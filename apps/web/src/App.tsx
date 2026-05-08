@@ -108,6 +108,10 @@ function App() {
   const [recordingSttStatus, setRecordingSttStatus] = useState<Record<string, string>>({})
   const [recordingSttError, setRecordingSttError] = useState<Record<string, string>>({})
   const [openPlayers, setOpenPlayers] = useState<Record<string, boolean>>({})
+  const [openCorrectionEditors, setOpenCorrectionEditors] = useState<Record<string, boolean>>({})
+  const [correctionDrafts, setCorrectionDrafts] = useState<Record<string, string>>({})
+  const [correctionSaveStatus, setCorrectionSaveStatus] = useState<Record<string, string>>({})
+  const [correctionSaveError, setCorrectionSaveError] = useState<Record<string, string>>({})
 
   const [recordingStatus, setRecordingStatus] = useState<string>('')
   const [recordingError, setRecordingError] = useState<string>('')
@@ -490,7 +494,45 @@ function App() {
     const res = (await getMergedCorrection(activeProjectId)) as any
     refreshApiLogs()
     if (!res?.ok) throw new Error(res?.error?.message ?? 'failed to load merged correction')
-    setTranscriptText(String(res.text ?? ''))
+    const text = String(res.text ?? '')
+    setTranscriptText(text)
+    return text
+  }
+
+  async function saveCorrectionForRecording(recordingId: string) {
+    setCorrectionSaveError((prev) => ({ ...prev, [recordingId]: '' }))
+    setCorrectionSaveStatus((prev) => ({ ...prev, [recordingId]: 'saving' }))
+    try {
+      const text = String(correctionDrafts[recordingId] ?? '')
+      const res = (await saveRecordingCorrection(recordingId, text)) as any
+      refreshApiLogs()
+      if (!res?.ok) throw new Error(res?.error?.message ?? '保存校正失败')
+      setCorrectionSaveStatus((prev) => ({ ...prev, [recordingId]: 'saved' }))
+      if (activeProjectId) await loadRecordings(activeProjectId)
+    } catch (e: any) {
+      setCorrectionSaveStatus((prev) => ({ ...prev, [recordingId]: '' }))
+      setCorrectionSaveError((prev) => ({ ...prev, [recordingId]: e?.message ?? String(e) }))
+    }
+  }
+
+  function exportMarkdown() {
+    const title = activeProject?.name ? String(activeProject.name).trim() : 'story'
+    const safeName = (title || 'story').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80)
+    const content = storyText && storyText.trim() ? storyText : transcriptText
+    const md = String(content ?? '').trim()
+    if (!md) {
+      window.alert('没有可导出的内容')
+      return
+    }
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${safeName}.md`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
   }
 
   async function transcribeOneRecording(r: CloudRecording) {
@@ -797,6 +839,19 @@ function App() {
                           {recordingSttStatus[r.id] === 'transcribing' ? '转写中…' : '转写'}
                         </button>
                         <button
+                          className="btn"
+                          type="button"
+                          onClick={() => {
+                            setOpenCorrectionEditors((prev) => ({ ...prev, [r.id]: !prev[r.id] }))
+                            setCorrectionDrafts((prev) => {
+                              if (prev[r.id] != null) return prev
+                              return { ...prev, [r.id]: String(r.correctionText ?? r.transcriptText ?? '') }
+                            })
+                          }}
+                        >
+                          校正
+                        </button>
+                        <button
                           className="btn danger"
                           type="button"
                           onClick={() => void (async () => {
@@ -836,6 +891,23 @@ function App() {
                       </div>
                     ) : r.transcriptText ? (
                       <div className="recordingTranscript">{r.transcriptText}</div>
+                    ) : null}
+
+                    {openCorrectionEditors[r.id] ? (
+                      <div className="recordingCorrection">
+                        <div className="muted">校正稿（只影响当前项目/该条录音）</div>
+                        {correctionSaveError[r.id] ? <div className="errorText">{correctionSaveError[r.id]}</div> : null}
+                        <textarea
+                          className="textArea"
+                          value={String(correctionDrafts[r.id] ?? '')}
+                          onChange={(e) => setCorrectionDrafts((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                        />
+                        <div className="actions">
+                          <button className="btn" type="button" onClick={() => void saveCorrectionForRecording(r.id)} disabled={correctionSaveStatus[r.id] === 'saving'}>
+                            {correctionSaveStatus[r.id] === 'saving' ? '保存中…' : '保存校正'}
+                          </button>
+                        </div>
+                      </div>
                     ) : null}
                     {openPlayers[r.id] && recordingBlobs[r.id] ? (
                       <div className="recordingPlayer">
@@ -893,6 +965,24 @@ function App() {
               >
                 汇总到文本
               </button>
+              <button
+                className="btn"
+                type="button"
+                onClick={() => void (async () => {
+                  if (!activeProjectId) return
+                  try {
+                    const merged = await applyMergedCorrectionFromServer()
+                    const res = (await saveProjectDraft(activeProjectId, String(merged ?? ''))) as any
+                    refreshApiLogs()
+                    if (!res?.ok) window.alert(res?.error?.message ?? '保存失败')
+                  } catch (e: any) {
+                    window.alert(e?.message ?? String(e))
+                  }
+                })()}
+                disabled={!activeProjectId}
+              >
+                以校正合并稿覆盖“项目文本”
+              </button>
               {recordingsAsc.length === 1 ? (
                 <button
                   className="btn"
@@ -937,8 +1027,27 @@ function App() {
               <button className="btn" type="button" onClick={() => void runApiRefine()} disabled={!transcriptText.trim()}>
                 开始改写
               </button>
+              <button
+                className="btn"
+                type="button"
+                onClick={() => void (async () => {
+                  if (!activeProjectId) return
+                  try {
+                    const merged = await applyMergedCorrectionFromServer()
+                    if (merged != null) localStorage.setItem(LS_TRANSCRIPT_PREFIX + activeProjectId, merged)
+                  } catch (e: any) {
+                    window.alert(e?.message ?? String(e))
+                  }
+                })()}
+                disabled={!activeProjectId}
+              >
+                使用“校正合并稿”作为输入
+              </button>
               <button className="btn" type="button" onClick={() => void onRollbackFinal()} disabled={!storyText.trim()}>
                 撤销到上一版
+              </button>
+              <button className="btn" type="button" onClick={() => exportMarkdown()} disabled={!(storyText.trim() || transcriptText.trim())}>
+                导出 Markdown
               </button>
               <select className="input" value={refineMode} onChange={(e) => setRefineMode(e.target.value as any)}>
                 <option value="clean">clean</option>
