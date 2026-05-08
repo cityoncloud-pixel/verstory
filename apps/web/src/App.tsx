@@ -37,7 +37,7 @@ const LS_ACTIVE_PROJECT_KEY = 'verstory.activeProjectId.v2'
 const LS_TRANSCRIPT_PREFIX = 'verstory.transcript.v2.'
 const LS_STORY_PREFIX = 'verstory.story.v2.'
 const LS_STORY_HISTORY_PREFIX = 'verstory.storyHistory.v1.'
-const MAX_RECORDING_MS = 5 * 60 * 1000
+const MAX_RECORDING_MS = 15 * 60 * 1000
 
 function shouldUseDirectR2Upload() {
   const v = (import.meta as any).env?.VITE_R2_DIRECT_UPLOAD
@@ -70,6 +70,11 @@ function formatDurationMs(ms: number) {
   const m = Math.floor(totalSec / 60)
   const s = totalSec % 60
   return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function formatLimitHint(maxMs: number) {
+  const m = Math.max(1, Math.round(maxMs / 60000))
+  return `单次最长 ${m} 分钟`
 }
 
 async function getAudioDurationMs(blob: Blob) {
@@ -430,14 +435,14 @@ function App() {
     setRecordingStatus('录音中')
   }
 
-  async function stopRecording(reason?: 'max_duration') {
+async function stopRecording(reason?: 'max_duration') {
     setRecordingError('')
     const recorder = mediaRecorderRef.current
     const stream = mediaStreamRef.current
     if (!recorder) return
     clearRecordingTimers()
     recordingStartedAtRef.current = null
-    setRecordingStatus(reason === 'max_duration' ? '已到 5 分钟上限，正在保存…' : '正在保存录音片段…')
+    setRecordingStatus(reason === 'max_duration' ? '已到 15 分钟上限，正在保存…' : '正在保存录音片段…')
 
     const blob = await new Promise<Blob>((resolve) => {
       recorder.onstop = () => {
@@ -824,7 +829,9 @@ function App() {
               <div className="panelTitle">录音</div>
               {recordingStatus ? <div className="badge running">录音中</div> : null}
             </div>
-            <div className="muted">录音会上传到云端（R2），可跨设备继续。</div>
+            <div className="muted">
+              录音会上传到云端（R2），可跨设备继续。{formatLimitHint(MAX_RECORDING_MS)}。
+            </div>
             <div className="actions">
               <button className="btn" type="button" onClick={() => void startRecording()} disabled={!activeProject || isRecording}>
                 开始录音
@@ -839,7 +846,9 @@ function App() {
                 <div className="recordingLive">
                   <span className="recDot" />
                   <RecordingWaveform stream={mediaStreamRef.current} />
-                  <span className="muted">{formatDurationMs(recordingElapsedMs)}</span>
+                  <span className="muted">
+                    {formatDurationMs(recordingElapsedMs)} / {formatDurationMs(MAX_RECORDING_MS)}
+                  </span>
                 </div>
               ) : null}
             </div>
