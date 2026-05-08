@@ -78,6 +78,8 @@ export async function buildServer() {
 
   await app.register(cors, {
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['authorization', 'content-type'],
     origin: (origin, cb) => {
       if (!origin) return cb(null, true)
       const allow = [

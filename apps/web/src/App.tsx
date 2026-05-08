@@ -18,6 +18,7 @@ import {
   listRecordings,
   login,
   logout,
+  renameProjectApi,
   rollbackProjectFinal,
   saveRecordingCorrection,
   saveProjectDraft,
@@ -338,6 +339,19 @@ function App() {
     refreshApiLogs()
     if (!res?.ok) {
       window.alert(res?.error?.message ?? '创建失败')
+      return
+    }
+    await loadProjects()
+  }
+
+  async function renameActiveProject() {
+    if (!activeProject) return
+    const name = window.prompt('修改项目名称：', activeProject.name)
+    if (!name) return
+    const res = (await renameProjectApi(activeProject.id, name)) as any
+    refreshApiLogs()
+    if (!res?.ok) {
+      window.alert(res?.error?.message ?? '修改失败')
       return
     }
     await loadProjects()
@@ -756,6 +770,9 @@ function App() {
           </button>
           <button className="btn" type="button" onClick={() => void createProject()}>
             新建项目
+          </button>
+          <button className="btn" type="button" onClick={() => void renameActiveProject()} disabled={!activeProject}>
+            修改名称
           </button>
           <button className="btn" type="button" onClick={() => void onDeleteActiveProject()} disabled={!activeProject}>
             删除项目

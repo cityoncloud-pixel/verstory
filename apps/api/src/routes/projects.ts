@@ -24,6 +24,24 @@ export function registerProjectRoutes(app: FastifyInstance, db: Db, s3: S3Client
     return reply.send({ ok: true, project: { id, name } })
   })
 
+  app.patch('/api/projects/:id', { preHandler: [(app as any).requireAuth] }, async (req, reply) => {
+    const userId = (req as any).user.id as string
+    const id = String((req.params as any).id)
+    const name = String((req.body as any)?.name ?? '').trim()
+    if (!name) return reply.code(400).send(apiError('BAD_REQUEST', 'missing project name'))
+
+    const q = await db.pool.query(
+      `update projects
+         set name=$3,
+             updated_at=now()
+       where id=$1 and user_id=$2
+       returning id, name`,
+      [id, userId, name],
+    )
+    if (!q.rowCount) return reply.code(404).send(apiError('NOT_FOUND', 'project not found'))
+    return reply.send({ ok: true, project: q.rows[0] })
+  })
+
   app.delete('/api/projects/:id', { preHandler: [(app as any).requireAuth] }, async (req, reply) => {
     const userId = (req as any).user.id as string
     const id = String((req.params as any).id)

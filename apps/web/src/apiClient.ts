@@ -159,6 +159,14 @@ export async function deleteProjectApi(id: string) {
   return authedJsonFetch(`${getApiBase()}/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
+export async function renameProjectApi(id: string, name: string) {
+  return authedJsonFetch(`${getApiBase()}/api/projects/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
 export async function initRecordingUpload(params: {
   projectId: string
   mimeType: string
