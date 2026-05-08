@@ -18,6 +18,7 @@ import { registerRecordingRoutes } from './routes/recordings.js'
 import { registerProjectTextRoutes } from './routes/projectTexts.js'
 import { registerSttRoutes } from './routes/stt.js'
 import { registerTextRefineRoutes } from './routes/textRefine.js'
+import { registerCorrectionRoutes } from './routes/corrections.js'
 
 export async function buildServer() {
   const config = getConfig()
@@ -151,6 +152,7 @@ export async function buildServer() {
   registerProjectRoutes(app, db, s3, config.R2_BUCKET)
   registerRecordingRoutes(app, db, s3, config.R2_BUCKET)
   registerProjectTextRoutes(app, db)
+  registerCorrectionRoutes(app, db)
 
   // Temporary file endpoint used by existing Doubao flow; kept for backward compatibility.
   app.get('/api/stt/tmp/:id', async (req, reply) => {

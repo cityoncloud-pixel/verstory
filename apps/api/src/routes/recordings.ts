@@ -142,6 +142,13 @@ export function registerRecordingRoutes(app: FastifyInstance, db: Db, s3: S3Clie
               order by t.created_at desc
               limit 1
             ) as "transcriptModel"
+            , (
+              select c.text
+              from corrections c
+              where c.user_id=$1 and c.recording_id=recordings.id
+              order by c.created_at desc
+              limit 1
+            ) as "correctionText"
        from recordings where user_id=$1 and project_id=$2 order by created_at desc`,
       [userId, projectId],
     )

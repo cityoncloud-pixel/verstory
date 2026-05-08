@@ -74,6 +74,18 @@ export async function migrate(db: Db) {
       created_at timestamptz not null default now()
     );
 
+    create table if not exists corrections (
+      id text primary key,
+      user_id text not null references users(id) on delete cascade,
+      project_id text not null references projects(id) on delete cascade,
+      recording_id text not null references recordings(id) on delete cascade,
+      text text not null,
+      created_at timestamptz not null default now()
+    );
+
+    create index if not exists corrections_user_project_recording_created_at_idx
+      on corrections (user_id, project_id, recording_id, created_at desc);
+
     create table if not exists rewrites (
       id text primary key,
       user_id text not null references users(id) on delete cascade,

@@ -261,6 +261,18 @@ export async function sttTranscribe(params: {
   return authedJsonFetch(`${getApiBase()}/api/stt/transcribe`, { method: 'POST', body: form })
 }
 
+export async function saveRecordingCorrection(recordingId: string, text: string) {
+  return authedJsonFetch(`${getApiBase()}/api/recordings/${encodeURIComponent(recordingId)}/corrections`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text }),
+  })
+}
+
+export async function getMergedCorrection(projectId: string) {
+  return authedJsonFetch(`${getApiBase()}/api/projects/${encodeURIComponent(projectId)}/corrections/merged`, { method: 'GET' })
+}
+
 export async function textRefine(params: {
   text: string
   mode: 'clean' | 'organize' | 'memoir' | 'goal'

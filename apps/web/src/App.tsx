@@ -11,6 +11,7 @@ import {
   deleteRecording,
   fetchModels,
   getRecordingBlob,
+  getMergedCorrection,
   getProjectTexts,
   initRecordingUpload,
   listProjectsApi,
@@ -18,6 +19,7 @@ import {
   login,
   logout,
   rollbackProjectFinal,
+  saveRecordingCorrection,
   saveProjectDraft,
   saveProjectFinal,
   setAccessToken,
@@ -56,6 +58,7 @@ type CloudRecording = {
   transcriptText?: string | null
   transcriptProvider?: string | null
   transcriptModel?: string | null
+  correctionText?: string | null
 }
 
 function formatDurationMs(ms: number) {
@@ -476,11 +479,19 @@ function App() {
   const mergedTranscriptFromRecordings = useMemo(() => {
     const parts: string[] = []
     for (const r of recordingsAsc) {
-      const t = String(r.transcriptText ?? '').trim()
+      const t = String(r.correctionText ?? r.transcriptText ?? '').trim()
       if (t) parts.push(t)
     }
     return parts.join('\n\n')
   }, [recordingsAsc])
+
+  async function applyMergedCorrectionFromServer() {
+    if (!activeProjectId) return
+    const res = (await getMergedCorrection(activeProjectId)) as any
+    refreshApiLogs()
+    if (!res?.ok) throw new Error(res?.error?.message ?? 'failed to load merged correction')
+    setTranscriptText(String(res.text ?? ''))
+  }
 
   async function transcribeOneRecording(r: CloudRecording) {
     setRecordingSttError((prev) => ({ ...prev, [r.id]: '' }))
@@ -818,7 +829,14 @@ function App() {
                     </div>
 
                     {recordingSttError[r.id] ? <div className="errorText">{recordingSttError[r.id]}</div> : null}
-                    {r.transcriptText ? <div className="recordingTranscript">{r.transcriptText}</div> : null}
+                    {r.correctionText ? (
+                      <div className="recordingTranscript">
+                        <div className="muted">已校正：</div>
+                        {r.correctionText}
+                      </div>
+                    ) : r.transcriptText ? (
+                      <div className="recordingTranscript">{r.transcriptText}</div>
+                    ) : null}
                     {openPlayers[r.id] && recordingBlobs[r.id] ? (
                       <div className="recordingPlayer">
                         <AudioPlayer source={recordingBlobs[r.id]} />
@@ -856,6 +874,9 @@ function App() {
               <button className="btn" type="button" onClick={() => void runApiTranscriptionAll()} disabled={recordingsAsc.length === 0}>
                 转写全部
               </button>
+              <button className="btn" type="button" onClick={() => void applyMergedCorrectionFromServer()} disabled={!activeProjectId}>
+                从服务端载入“校正合并稿”
+              </button>
               <button
                 className="btn"
                 type="button"
@@ -872,6 +893,22 @@ function App() {
               >
                 汇总到文本
               </button>
+              {recordingsAsc.length === 1 ? (
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => void (async () => {
+                    const only = recordingsAsc[0]
+                    const res = (await saveRecordingCorrection(only.id, transcriptText)) as any
+                    refreshApiLogs()
+                    if (!res?.ok) window.alert(res?.error?.message ?? '保存校正失败')
+                    if (activeProjectId) await loadRecordings(activeProjectId)
+                  })()}
+                  disabled={!transcriptText.trim()}
+                >
+                  保存为该录音的“校正稿”（仅1条录音时）
+                </button>
+              ) : null}
               <select className="input" value={sttProvider} onChange={(e) => setSttProvider(e.target.value)}>
                 {models?.providers
                   ?.filter((p) => p.enabled)
