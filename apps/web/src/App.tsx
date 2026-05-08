@@ -33,6 +33,7 @@ import { clearApiLogs, getApiLogs } from './apiLog'
 const LS_ACTIVE_PROJECT_KEY = 'verstory.activeProjectId.v2'
 const LS_TRANSCRIPT_PREFIX = 'verstory.transcript.v2.'
 const LS_STORY_PREFIX = 'verstory.story.v2.'
+const LS_STORY_HISTORY_PREFIX = 'verstory.storyHistory.v1.'
 const MAX_RECORDING_MS = 5 * 60 * 1000
 
 function shouldUseDirectR2Upload() {
@@ -132,7 +133,14 @@ function App() {
   const [storyText, setStoryText] = useState<string>('')
   const [storyRulesSummary, setStoryRulesSummary] = useState<string>('')
 
-  const [activeTab, setActiveTab] = useState<'stt' | 'rewrite'>('stt')
+  const [activeTab, setActiveTab] = useState<'record' | 'stt' | 'draft'>('record')
+  const [showSettings, setShowSettings] = useState(false)
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
+  const [manageRecordings, setManageRecordings] = useState(false)
+
+  const [showRawInDraft, setShowRawInDraft] = useState(false)
+  const [draftStyle, setDraftStyle] = useState<'faithful' | 'memoir' | 'interview' | 'family'>('faithful')
+  const [draftHistory, setDraftHistory] = useState<Array<{ ts: number; style?: string; mode?: string; text: string }>>([])
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
@@ -224,6 +232,20 @@ function App() {
     if (activeProjectId) localStorage.setItem(LS_ACTIVE_PROJECT_KEY, activeProjectId)
     else localStorage.removeItem(LS_ACTIVE_PROJECT_KEY)
   }, [activeProjectId])
+
+  useEffect(() => {
+    if (!activeProjectId) {
+      setDraftHistory([])
+      return
+    }
+    try {
+      const raw = localStorage.getItem(LS_STORY_HISTORY_PREFIX + activeProjectId)
+      const hist = (raw ? (JSON.parse(raw) as any[]) : []) as any[]
+      setDraftHistory(hist.filter((x) => x && typeof x === 'object' && typeof x.text === 'string'))
+    } catch {
+      setDraftHistory([])
+    }
+  }, [activeProjectId, storyText])
 
   useEffect(() => {
     let cancelled = false
@@ -535,6 +557,26 @@ function App() {
     URL.revokeObjectURL(url)
   }
 
+  function exportTxt() {
+    const title = activeProject?.name ? String(activeProject.name).trim() : 'story'
+    const safeName = (title || 'story').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80)
+    const content = storyText && storyText.trim() ? storyText : transcriptText
+    const txt = String(content ?? '').trim()
+    if (!txt) {
+      window.alert('没有可导出的内容')
+      return
+    }
+    const blob = new Blob([txt], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${safeName}.txt`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
   async function transcribeOneRecording(r: CloudRecording) {
     setRecordingSttError((prev) => ({ ...prev, [r.id]: '' }))
     setRecordingSttStatus((prev) => ({ ...prev, [r.id]: 'transcribing' }))
@@ -630,6 +672,16 @@ function App() {
     setStoryText(out)
     setStoryRulesSummary(`mode=${refineMode} provider=${textProvider} model=${textModel}`)
     localStorage.setItem(LS_STORY_PREFIX + activeProjectId, JSON.stringify({ text: out, rulesSummary: `mode=${refineMode}` }))
+    try {
+      const key = LS_STORY_HISTORY_PREFIX + activeProjectId
+      const raw = localStorage.getItem(key)
+      const hist = (raw ? (JSON.parse(raw) as any[]) : []) as any[]
+      hist.push({ ts: Date.now(), style: draftStyle, mode: refineMode, text: out })
+      while (hist.length > 20) hist.shift()
+      localStorage.setItem(key, JSON.stringify(hist))
+    } catch {
+      // ignore history errors
+    }
     await saveProjectFinal(activeProjectId, out)
     refreshApiLogs()
     setRewriteStatus('')
@@ -695,10 +747,13 @@ function App() {
       <header className="topbar">
         <div>
           <div className="title">Verstory</div>
-          <div className="subtitle">录音 → 转写 → 改写（云端存储）</div>
+          <div className="subtitle">录音 → 转写 → 整理（云端存储）</div>
           {buildId ? <div className="subtitle">build={buildId}</div> : null}
         </div>
         <div className="actions">
+          <button className="btn" type="button" onClick={() => setShowSettings(true)}>
+            设置
+          </button>
           <button className="btn" type="button" onClick={() => void createProject()}>
             新建项目
           </button>
@@ -734,7 +789,7 @@ function App() {
         </div>
 
         <div className="main">
-          <div className="panel">
+          <div className={'panel ' + (activeTab === 'record' ? '' : 'hideOnMobile')}>
             <div className="panelHeader">
               <div className="panelTitle">录音</div>
               {recordingStatus ? <div className="badge running">录音中</div> : null}
@@ -746,6 +801,9 @@ function App() {
               </button>
               <button className="btn" type="button" onClick={() => void stopRecording()} disabled={!isRecording}>
                 停止录音
+              </button>
+              <button className="btn" type="button" onClick={() => (setManageRecordings((v) => !v), setSelectedRecordingIds({}))} disabled={recordingsAsc.length === 0}>
+                {manageRecordings ? '退出管理' : '管理录音'}
               </button>
               {isRecording ? (
                 <div className="recordingLive">
@@ -759,47 +817,49 @@ function App() {
             {recordingError ? <div className="errorText">{recordingError}</div> : null}
 
             <div className="sectionTitle">录音列表</div>
-            <div className="actions">
-              <button
-                className="btn"
-                type="button"
-                onClick={() => {
-                  const next: Record<string, boolean> = {}
-                  for (const r of recordings) next[r.id] = true
-                  setSelectedRecordingIds(next)
-                }}
-                disabled={recordings.length === 0}
-              >
-                全选
-              </button>
-              <button className="btn" type="button" onClick={() => setSelectedRecordingIds({})} disabled={selectedIds.length === 0}>
-                取消全选
-              </button>
-              <button
-                className="btn danger"
-                type="button"
-                onClick={() => void (async () => {
-                  if (selectedIds.length === 0) return
-                  const ok = window.confirm(`删除 ${selectedIds.length} 条录音？`)
-                  if (!ok) return
-                  const res = (await bulkDeleteRecordings(selectedIds)) as any
-                  refreshApiLogs()
-                  if (!res?.ok) return window.alert(res?.error?.message ?? '删除失败')
-                  setRecordingBlobs({})
-                  setOpenPlayers({})
-                  setSelectedRecordingIds({})
-                  if (activeProjectId) await loadRecordings(activeProjectId)
-                })()}
-                disabled={selectedIds.length === 0}
-              >
-                删除所选
-              </button>
-              {activeProjectId ? (
-                <button className="btn" type="button" onClick={() => void loadRecordings(activeProjectId)}>
-                  刷新
+            {manageRecordings ? (
+              <div className="actions">
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => {
+                    const next: Record<string, boolean> = {}
+                    for (const r of recordings) next[r.id] = true
+                    setSelectedRecordingIds(next)
+                  }}
+                  disabled={recordings.length === 0}
+                >
+                  全选
                 </button>
-              ) : null}
-            </div>
+                <button className="btn" type="button" onClick={() => setSelectedRecordingIds({})} disabled={selectedIds.length === 0}>
+                  取消全选
+                </button>
+                <button
+                  className="btn danger"
+                  type="button"
+                  onClick={() => void (async () => {
+                    if (selectedIds.length === 0) return
+                    const ok = window.confirm(`删除选中的 ${selectedIds.length} 条录音？`)
+                    if (!ok) return
+                    const res = (await bulkDeleteRecordings(selectedIds)) as any
+                    refreshApiLogs()
+                    if (!res?.ok) return window.alert(res?.error?.message ?? '删除失败')
+                    setRecordingBlobs({})
+                    setOpenPlayers({})
+                    setSelectedRecordingIds({})
+                    if (activeProjectId) await loadRecordings(activeProjectId)
+                  })()}
+                  disabled={selectedIds.length === 0}
+                >
+                  删除选中
+                </button>
+                {activeProjectId ? (
+                  <button className="btn" type="button" onClick={() => void loadRecordings(activeProjectId)}>
+                    刷新
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
 
             {recordingsAsc.length === 0 ? (
               <div className="placeholder">当前项目还没有录音。</div>
@@ -808,13 +868,15 @@ function App() {
                 {recordingsAsc.map((r) => (
                   <div key={r.id} className="recordingItem">
                     <div className="recordingRow">
-                      <label className="check">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(selectedRecordingIds[r.id])}
-                          onChange={(e) => setSelectedRecordingIds((prev) => ({ ...prev, [r.id]: e.target.checked }))}
-                        />
-                      </label>
+                      {manageRecordings ? (
+                        <label className="check">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(selectedRecordingIds[r.id])}
+                            onChange={(e) => setSelectedRecordingIds((prev) => ({ ...prev, [r.id]: e.target.checked }))}
+                          />
+                        </label>
+                      ) : null}
                       <div className="recordingMeta">
                         <div className="recordingTitle">
                           {new Date(r.createdAt).toLocaleString()}{' '}
@@ -855,6 +917,7 @@ function App() {
                           className="btn danger"
                           type="button"
                           onClick={() => void (async () => {
+                            if (manageRecordings) return
                             const ok = window.confirm('删除这条录音？')
                             if (!ok) return
                             const res = (await deleteRecording(r.id)) as any
@@ -921,15 +984,18 @@ function App() {
           </div>
 
           <div className="panelTabs">
+            <button
+              className={'tab' + (activeTab === 'record' ? ' active' : '')}
+              onClick={() => setActiveTab('record')}
+              type="button"
+            >
+              录音
+            </button>
             <button className={'tab' + (activeTab === 'stt' ? ' active' : '')} onClick={() => setActiveTab('stt')} type="button">
               转写
             </button>
-            <button
-              className={'tab' + (activeTab === 'rewrite' ? ' active' : '')}
-              onClick={() => setActiveTab('rewrite')}
-              type="button"
-            >
-              改写
+            <button className={'tab' + (activeTab === 'draft' ? ' active' : '')} onClick={() => setActiveTab('draft')} type="button">
+              整理稿
             </button>
           </div>
 
@@ -999,33 +1065,23 @@ function App() {
                   保存为该录音的“校正稿”（仅1条录音时）
                 </button>
               ) : null}
-              <select className="input" value={sttProvider} onChange={(e) => setSttProvider(e.target.value)}>
-                {models?.providers
-                  ?.filter((p) => p.enabled)
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.id}
-                    </option>
-                  ))}
-              </select>
-              <input className="input" value={sttModel} onChange={(e) => setSttModel(e.target.value)} placeholder="stt model" />
             </div>
             {sttError ? <div className="errorText">{sttError}</div> : null}
             <textarea className="textArea" value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
           </div>
 
-          <div className={'panel ' + (activeTab === 'rewrite' ? '' : 'hideOnMobile')}>
+          <div className={'panel ' + (activeTab === 'draft' ? '' : 'hideOnMobile')}>
             <div className="panelHeader">
-              <div className="panelTitle">改写</div>
+              <div className="panelTitle">整理稿</div>
               {rewriteStatus ? (
                 <div className="badge running">
-                  改写中 <span className="spinner" />
+                  生成中 <span className="spinner" />
                 </div>
               ) : null}
             </div>
             <div className="actions">
               <button className="btn" type="button" onClick={() => void runApiRefine()} disabled={!transcriptText.trim()}>
-                开始改写
+                生成整理稿
               </button>
               <button
                 className="btn"
@@ -1046,69 +1102,156 @@ function App() {
               <button className="btn" type="button" onClick={() => void onRollbackFinal()} disabled={!storyText.trim()}>
                 撤销到上一版
               </button>
-              <button className="btn" type="button" onClick={() => exportMarkdown()} disabled={!(storyText.trim() || transcriptText.trim())}>
-                导出 Markdown
+              <button className="btn" type="button" onClick={() => exportTxt()} disabled={!(storyText.trim() || transcriptText.trim())}>
+                导出 TXT
               </button>
-              <select className="input" value={refineMode} onChange={(e) => setRefineMode(e.target.value as any)}>
-                <option value="clean">clean</option>
-                <option value="organize">organize</option>
-                <option value="memoir">memoir</option>
-                <option value="goal">goal</option>
+              <button className="btn" type="button" onClick={() => exportMarkdown()} disabled={!(storyText.trim() || transcriptText.trim())}>
+                导出 MD
+              </button>
+              <button className="btn" type="button" onClick={() => setShowRawInDraft((v) => !v)} disabled={!transcriptText.trim()}>
+                {showRawInDraft ? '隐藏原始稿' : '查看原始稿'}
+              </button>
+              <select
+                className="input"
+                value={draftStyle}
+                onChange={(e) => {
+                  const v = e.target.value as any
+                  setDraftStyle(v)
+                  // Map styles to existing backend modes.
+                  if (v === 'memoir') setRefineMode('memoir')
+                  else if (v === 'faithful') setRefineMode('organize')
+                  else if (v === 'interview') setRefineMode('organize')
+                  else if (v === 'family') setRefineMode('organize')
+                }}
+              >
+                <option value="faithful">忠实整理</option>
+                <option value="memoir">自传口吻</option>
+                <option value="interview">访谈稿</option>
+                <option value="family">家族记录</option>
               </select>
-              <select className="input" value={textProvider} onChange={(e) => setTextProvider(e.target.value)}>
-                {models?.providers
-                  ?.filter((p) => p.enabled)
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.id}
-                    </option>
-                  ))}
-              </select>
-              <input className="input" value={textModel} onChange={(e) => setTextModel(e.target.value)} placeholder="text model" />
+              {draftHistory.length > 0 ? (
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => {
+                    const last = draftHistory[draftHistory.length - 1]
+                    if (!last?.text) return
+                    const ok = window.confirm('恢复到上一条历史整理稿？（不会删除当前内容）')
+                    if (!ok) return
+                    setStoryText(String(last.text))
+                  }}
+                >
+                  恢复历史（最近）
+                </button>
+              ) : null}
             </div>
             {rewriteError ? <div className="errorText">{rewriteError}</div> : null}
             {storyRulesSummary ? <div className="muted">{storyRulesSummary}</div> : null}
             <textarea className="textArea" value={storyText} onChange={(e) => setStoryText(e.target.value)} />
+            {showRawInDraft ? (
+              <div className="rawPanel">
+                <div className="muted">原始/校正合并稿</div>
+                <textarea className="textArea" value={transcriptText} readOnly />
+              </div>
+            ) : null}
           </div>
 
-          <div className="panel">
-            <div className="panelHeader">
-              <div className="panelTitle">API 日志</div>
-            </div>
-            <div className="actions">
-              <button className="btn" type="button" onClick={() => (clearApiLogs(), refreshApiLogs())}>
-                清空
-              </button>
-              <button className="btn" type="button" onClick={() => clearLocalProjectCache()}>
-                清理本地缓存
-              </button>
-              <button className="btn" type="button" onClick={() => void loadProjects()}>
-                刷新项目
-              </button>
-              {activeProjectId ? (
-                <button className="btn" type="button" onClick={() => void loadRecordings(activeProjectId)}>
-                  刷新录音
-                </button>
-              ) : null}
-            </div>
-            <div className="apiLog">
-              {apiLogs.slice().reverse().map((l) => (
-                <div key={l.ts} className="apiLogItem">
-                  <div className="apiLogTop">
-                    <span className="apiLogMethod">{l.method}</span>
-                    <span className="apiLogUrl">{l.url}</span>
-                  </div>
-                  <div className="apiLogMeta">
-                    <span>status={l.status}</span>
-                    <span>ok={String(l.ok)}</span>
-                    <span>{l.durationMs}ms</span>
-                    {l.errorCode ? <span>{l.errorCode}</span> : null}
-                    {l.errorMessage ? <span className="apiLogErr">{l.errorMessage}</span> : null}
-                  </div>
+          {showSettings ? (
+            <div className="modalOverlay" role="dialog" aria-modal="true">
+              <div className="modal">
+                <div className="panelHeader">
+                  <div className="panelTitle">设置</div>
+                  <button className="btn" type="button" onClick={() => setShowSettings(false)}>
+                    关闭
+                  </button>
                 </div>
-              ))}
+
+                <div className="actions">
+                  <button className="btn" type="button" onClick={() => clearLocalProjectCache()}>
+                    清理本地缓存
+                  </button>
+                  <button className="btn" type="button" onClick={() => void loadProjects()}>
+                    刷新项目
+                  </button>
+                  {activeProjectId ? (
+                    <button className="btn" type="button" onClick={() => void loadRecordings(activeProjectId)}>
+                      刷新录音
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="sectionTitle">高级设置（默认隐藏）</div>
+                <div className="actions">
+                  <button className="btn" type="button" onClick={() => setShowAdvancedSettings((v) => !v)}>
+                    {showAdvancedSettings ? '隐藏高级' : '显示高级'}
+                  </button>
+                </div>
+
+                {showAdvancedSettings ? (
+                  <div>
+                    <div className="sectionTitle">模型配置</div>
+                    <div className="actions">
+                      <div className="muted">转写</div>
+                      <select className="input" value={sttProvider} onChange={(e) => setSttProvider(e.target.value)}>
+                        {models?.providers
+                          ?.filter((p) => p.enabled)
+                          .map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.id}
+                            </option>
+                          ))}
+                      </select>
+                      <input className="input" value={sttModel} onChange={(e) => setSttModel(e.target.value)} placeholder="stt model" />
+                    </div>
+
+                    <div className="actions">
+                      <div className="muted">整理</div>
+                      <select className="input" value={textProvider} onChange={(e) => setTextProvider(e.target.value)}>
+                        {models?.providers
+                          ?.filter((p) => p.enabled)
+                          .map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.id}
+                            </option>
+                          ))}
+                      </select>
+                      <input className="input" value={textModel} onChange={(e) => setTextModel(e.target.value)} placeholder="text model" />
+                    </div>
+
+                    <div className="sectionTitle">调试</div>
+                    <div className="actions">
+                      <button className="btn" type="button" onClick={() => (clearApiLogs(), refreshApiLogs())}>
+                        清空 API 日志
+                      </button>
+                      <button className="btn" type="button" onClick={() => refreshApiLogs()}>
+                        刷新 API 日志
+                      </button>
+                    </div>
+                    <div className="apiLog">
+                      {apiLogs
+                        .slice()
+                        .reverse()
+                        .map((l) => (
+                          <div key={l.ts} className="apiLogItem">
+                            <div className="apiLogTop">
+                              <span className="apiLogMethod">{l.method}</span>
+                              <span className="apiLogUrl">{l.url}</span>
+                            </div>
+                            <div className="apiLogMeta">
+                              <span>status={l.status}</span>
+                              <span>ok={String(l.ok)}</span>
+                              <span>{l.durationMs}ms</span>
+                              {l.errorCode ? <span>{l.errorCode}</span> : null}
+                              {l.errorMessage ? <span className="apiLogErr">{l.errorMessage}</span> : null}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       </div>
     </div>
