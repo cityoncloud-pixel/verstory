@@ -1,0 +1,21 @@
+name: Deploy API
+
+on:
+  push:
+    branches:
+      - deploy/production
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Bandwagon
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.BANDWAGON_HOST }}
+          username: ${{ secrets.BANDWAGON_USER }}
+          key: ${{ secrets.BANDWAGON_SSH_KEY }}
+          port: ${{ secrets.BANDWAGON_PORT }}
+          script: |
+            /root/verstory/deploy-api.sh
+
