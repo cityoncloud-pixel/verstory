@@ -1,54 +1,52 @@
 # Goal
 
 ## 1. Intent / 原始意图
-把当前 Verstory 从“前后端已部署”推进到“真实可用的 AI 文本处理系统”：
-用户上传/输入语音或文字 → 系统完成语音转文字（STT）→ 对文字进行整理、润色、结构化 → 支持可选 provider/model → 前端可配置、可调用、可验证 → 后端稳定部署在 VPS。
+把当前 Verstory（口述整理工具 / Oral Story）从“可跑通的技术 demo / 部署”推进到“面向中老年用户可真实使用的最小闭环（M1）”：
+
+**口述 → 录音 → 转写 → 校正 → 整理成文 → 导出保存**
+
+并且严格遵守交互约束：
+- 极简操作 / 大按钮 / 高对比
+- 单路径推进（不让用户迷路）
+- 避免误操作（删除必须有明确确认）
+- 主流程保持三步稳定：`录音 → 转写 → 整理`
 
 ## 2. Target Outcome / 目标结果
-交付一个可在生产环境真实使用的最小闭环（Phase 4）：
-- 后端：在 `https://story-api.suenbeya.com` 提供模型列表与配置检查接口，并提供 STT 与文本整理 API（支持可选 provider/model；无 key 时返回清晰错误）
-- 前端：`https://story.suenbeya.com` 可选择模型并完成：上传音频 → STT 得到文本 → 文本整理（clean/organize/goal）→ 展示与导出
-（Phase 2/3 已完成：本机 MVP + 部署链路与 /healthz 验证。）
+交付一个在生产环境可用的 M1 闭环（Web）：
+- 前端（Hostinger）：用户可在浏览器完成 **项目 → 录音（或上传）→ 转写 → 校正 → 整理 → 导出**。
+- 后端（Bandwagon VPS）：提供项目/录音/转写/整理相关 API，稳定运行、可观测、错误可解释（缺 key / 不可用 provider 时给清晰错误）。
+- 数据存储：录音文件存对象存储（R2/S3），元数据与文本存 Postgres；本地可做轻量缓存但以服务端为准。
 
 ## 3. Success Criteria / 成功标准
-1) 可观察行为：在浏览器中创建一个项目后，完成至少 2 段录音（开始/停止/继续录音），页面展示录音片段列表（含时长/创建时间），每段可回放。
-2) 可观察行为：点击“转写”后，系统为每段音频生成对应转写文本，并给出合并后的“原始转写全文”（MVP 允许使用 mock provider，但必须能跑通端到端 UI/数据流）。
-3) 可观察行为：点击“生成故事”后，输出“整理后故事文本”，并明确声明整理原则（不虚构、不改动事实；仅做必要的语病/断句/去口头语/结构整理）；用户可在页面同时查看原始转写与故事文本。
-4) 可观察行为：刷新页面后，已创建项目、录音片段元数据、转写文本与故事文本仍可恢复（本地持久化）。
-5) 可观察行为（mock 验收）：在无网络/无密钥情况下，mock provider 仍能生成确定性（可重复）的转写与故事输出（例如基于固定模板/固定伪输入），以保证端到端流程可验收。
-6) 可验证命令：项目在本机可通过 `npm run build`（或仓库既定等价构建命令）成功构建产物；并能通过 `npm run dev`（或等价启动命令）启动后完成上述行为验收。（若仓库并非 Node 生态，则在执行阶段替换为实际栈的等价命令。）
-7) 模型配置系统：`GET https://story-api.suenbeya.com/api/models` 返回可用 provider/model 列表与 defaults；`GET /api/config/check` 返回启用状态与缺失的 API Key（若缺失）。
-8) STT：`POST /api/stt/transcribe` 上传 mp3/wav/m4a（或 webm/ogg）后返回 `{ ok:true, text, provider, model, duration }`；无 API key 或模型不可用时返回明确 `error.code`。
-9) Text refine：`POST /api/text/refine` 输入 `{ text, mode, provider, model }` 后返回 `{ ok:true, result, mode }`；mode 支持 `clean | organize | goal`。
-10) 前端闭环：用户在网页完成 上传语音 → 转文字 → 整理文字（mode 可选、模型可选）→ 展示结果；无 key 时前端能显示清晰错误信息。
+1) 长辈可独立完成：创建项目 → 开始录音 → 停止 → 回放（每条录音逐条显示）。
+2) 可独立完成：对任意一条录音点击“转写”并得到文本；失败可重试且不影响其它录音。
+3) 可独立完成：进入“整理”步骤，基于已校正文本生成整理稿（不虚构、不改事实；仅断句、去口头语、结构化）。
+4) 可独立完成：导出（下载 Markdown 或复制到剪贴板，至少一种）。
+5) 数据一致：录音与文本严格归属到当前项目；删除录音/项目后数据（DB + 对象存储）被清理（允许 best-effort，但需可重试）。
+6) 可部署验证：
+   - Hostinger 前端可访问并可完成上述闭环。
+   - Bandwagon 后端可通过 `/healthz`，并且关键 API 可用且错误可解释。
 
 ## 4. Scope / 范围
 ### In
-- 单用户、本地优先的项目管理：创建/重命名/删除项目（最少创建与选择项目即可）。
-- 浏览器端录音与分段追加：开始/停止/继续；片段列表与回放。
-- 音频片段与文本的本地持久化（例如 IndexedDB）；可恢复历史项目状态。
-- Provider 抽象：转写与整理以可插拔接口实现；默认 mock provider 跑通流程（不依赖外部 API）。
-- 故事文本导出（Markdown 文件或复制到剪贴板，至少一种）。
-- Phase 4 后端能力：
-  - 模型配置/列表：provider registry + defaults + config check
-  - STT：音频上传转写（可选 openai）
-  - 文本整理：clean/organize/goal 三种模式（可选 openai/deepseek）
-  - 错误模型/无 key 的可解释错误返回
+- 登录/注册（最小可用即可）。
+- 项目管理：创建/进入/删除。
+- 录音：开始/暂停/停止；上传本地录音；播放；单删/多选批量删除。
+- 转写：对单条录音转写；对项目内录音“转写全部”（逐条容错）。
+- 校正：在“转写结果”上可编辑保存（保存为该录音的“校正稿”）。
+- 整理成文：基于“校正后的合并文本”生成整理稿；提供最少 2 种输出风格（如：口述整理/回忆录）。
+- 导出：Markdown 下载或复制。
+- 后端部署：Bandwagon VPS；前端部署：Hostinger。
 
 ### Out
-- 账号登录、权限管理、跨设备同步、多用户协作。
-- 生产级实时转写、说话人分离、噪声抑制、复杂编辑器能力（富文本协作/版本对比等）。
-- 完整的平板/iPadOS Safari 兼容性保证（作为后续里程碑；MVP 以桌面 Chromium 为主）。
-- 付费/计费、配额管理、审计与合规模块。
-- 生产级后端业务（账号、同步、持久化 API、鉴权、管理后台等）在 Phase 3 不做。
-- Phase 4 仍不做：账号/同步/数据库持久化、计费、配额、复杂权限；只做“可用的 AI 文本处理最小闭环”。
+- 多用户协作、跨设备同步策略（M1 不做复杂同步冲突处理）。
+- 说话人分离、自动章节、时间线、人物识别（M2）。
+- 计费/配额/审计与合规模块。
 
 ## 5. Constraints / 约束
-- Tech/Platform: Web 应用；录音使用浏览器音频能力（`MediaRecorder`）；本地存储（IndexedDB/LocalStorage）；provider 可选接入云端 API 但 MVP 不强依赖（见 `assumptions.md` A-0004）。
-- Time: 以 MVP 可验收为目标，优先端到端跑通与可复用架构，避免过度工程化。
-- Tools: 允许在 Codex/Cursor 环境下开发；不强制外部服务依赖；如接云端 API，需通过环境变量/配置注入密钥。
-- Style/Architecture: 清晰分层（UI / domain / providers / storage）；provider 接口可替换；坚持“尊重原意”与“不可虚构”原则可配置/可审计（至少在 UI 文案与整理指令中体现）。
-- Cost: 默认零外部成本（mock）；如启用云端模型，需可关闭并提示潜在费用。
+- Web：大字号/大按钮/高对比；“单页面只做一件事”。
+- 录音文件不落本地仓库；对象存储保存，DB 存引用；删除有确认且可恢复提示。
+- API 错误必须可解释（面向普通用户的文案 + 面向开发的 error.code）。
 
 ### “尊重原意”不可变规则（MVP 至少体现在生成指令与 UI 提示）
 - 禁止虚构：不得添加录音/转写中未出现的新事实、人物、时间地点、经历。
@@ -75,29 +73,24 @@
 
 ## 9. Execution Handoff / 给 GAEH 的执行指令
 recommended_route:
-- Spec -> Plan -> Review -> Execute（先 mock 跑通全链路，再可选接真实 provider）
+ - Spec -> Plan -> Review -> Execute（先对齐交互规格与数据闭环，再补齐部署与验收）
 
 seed_tasks:
-- 定义数据模型：Project、RecordingSegment、Transcript、Story（含版本/更新时间）。
-- 实现浏览器录音：MediaRecorder 分段录制、片段列表、回放、删除。
-- 实现本地持久化：IndexedDB（或等价方案）存储项目/片段元数据与文本结果；刷新恢复。
-- 设计 provider 接口与默认 mock：TranscriptionProvider、StoryPolishProvider；mock 输出确定性文本。
-- 实现 UI：原始转写与故事并排展示；“转写/生成故事/导出”按钮与状态提示。
-- 实现导出：将故事以 Markdown 导出/复制。
-- 补齐最小文档与验收步骤。
+ - 目标对齐：根据 `oral_story_interaction_spec_v1.md` 完成信息架构与主流程约束落地。
+ - 前端：三步主流程（录音/转写/整理）+ 校正与导出；极简按钮与防误删。
+ - 后端：项目/录音/转写/整理 API 完整闭环；对象存储与 DB 一致性清理。
+ - 数据库：补齐“校正稿/整理稿”的版本与归属（绑定 project + recording）。
+ - 部署：Hostinger 前端文档与构建产物通过 GitHub 更新；Bandwagon 后端用 SSH 发布更新。
 
 spec_outline:
-- 信息架构：项目列表/项目详情/录音区/文本区/导出区。
-- 状态机：idle -> recording -> recorded -> transcribing -> polished -> exported（或等价）。
-- 存储 schema：projects、segments、texts（键与索引）。
-- provider 接口：输入/输出、错误处理、取消/重试策略。
-- 整理规则：不可变禁止项与允许编辑项；展示给用户的提示文案。
+ - 系统架构：前端/后端/DB/对象存储/鉴权与权限边界。
+ - 前端页面：登录/项目列表/项目工作台（录音-tab、转写-tab、整理-tab）。
+ - 后端 API：projects/recordings/stt/transcripts/rewrite/export。
+ - DB schema：projects、recordings、transcripts、rewrites（+ correction 与 derived 文档）。
+ - 状态管理：按“单路径推进”的状态机与 UI 状态映射。
 
 verification_plan:
-- 启动应用：执行仓库既定启动命令（默认 `npm run dev`）并打开页面。
-- 创建项目并录两段音频：开始/停止/继续录音；确认列表可回放。
-- 点击转写：确认每段出现转写文本与合并全文（mock 情况下也应有确定性输出）。
-- 点击生成故事：确认出现故事文本且声明整理原则；对比原文确认未引入新事实（人工抽查）。
-- 刷新页面：确认项目、片段、文本仍可恢复。
-- 导出：确认可复制/下载 Markdown。
-- 构建：执行仓库既定构建命令（默认 `npm run build`）成功。
+ - 本地：`npm --prefix apps/api run build` + `npm --prefix apps/web run build`。
+ - 流程：创建项目 → 录音 2 条 → 转写全部 → 校正保存 → 整理成文 → 导出。
+ - 删除：单删与批量删录音；删除项目；验证 DB + 对象存储清理。
+ - 部署：前端 Hostinger 可访问；后端 Bandwagon `/healthz` 与关键 API 可用。
