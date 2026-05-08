@@ -192,7 +192,13 @@ function App() {
     if (!res?.ok) throw new Error(res?.error?.message ?? 'failed to load projects')
     const list = (res.projects ?? []) as CloudProject[]
     setProjects(list)
-    if (!activeProjectId && list.length > 0) setActiveProjectId(list[0].id)
+
+    // Ensure active project id is valid; on first login we might have a stale id in localStorage.
+    const firstId = list.length > 0 ? String(list[0].id) : null
+    const hasActive = activeProjectId && list.some((p) => p.id === activeProjectId)
+    const nextActiveId = hasActive ? activeProjectId : firstId
+    if (nextActiveId && nextActiveId !== activeProjectId) setActiveProjectId(nextActiveId)
+    return nextActiveId
   }
 
   async function loadRecordings(projectId: string) {
@@ -319,7 +325,16 @@ function App() {
       return
     }
     setAuthed(true)
-    await loadProjects()
+    const pid = await loadProjects()
+    if (pid) {
+      // Force initial load after login even if activeProjectId doesn't change.
+      try {
+        await loadRecordings(pid)
+        await loadProjectTexts(pid)
+      } catch {
+        // ignore; user can retry via refresh
+      }
+    }
   }
 
   async function onLogout() {
